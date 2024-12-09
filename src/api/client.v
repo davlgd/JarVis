@@ -3,6 +3,7 @@ module api
 import net.http
 import json
 import os
+import time
 
 const config_file = os.join_path(os.home_dir(), '.config', 'jarvis', 'config.toml')
 
@@ -56,10 +57,6 @@ pub fn new_client(config Config) !Client {
 }
 
 pub fn (c Client) stream_completion(prompt string) ! {
-    protocol := if c.config.api_tls { 'https' } else { 'http' }
-    url := '${protocol}://${c.config.api_host}:${c.config.api_port}/v1/chat/completions'
-    println('Envoi de la requête à ${url}...')
-
     request := CompletionRequest{
         model: c.config.api_model
         messages: [
@@ -77,54 +74,50 @@ pub fn (c Client) stream_completion(prompt string) ! {
     }
 
     request_data := json.encode(request)
-    mut req := http.Request{
-        method: .post
-        url: url
-        data: request_data
-    }
 
-    req.add_header(.authorization, 'Bearer ${c.config.api_key}')
-    req.add_header(.content_type, 'application/json')
+    mut headers := []string{}
+    headers << 'POST /v1/chat/completions HTTP/1.1'
+    headers << 'Host: ${c.config.api_host}'
+    headers << 'Authorization: Bearer ${c.config.api_key}'
+    headers << 'Content-Type: application/json'
+    headers << 'Accept: text/event-stream'
+    headers << 'Content-Length: ${request_data.len}'
+    headers << 'Connection: close'
+    headers << ''
+    headers << request_data
 
-    mut response_received := false
+    request_str := headers.join('\r\n')
 
-    mut resp := req.do()!
+    mut stream := new_stream_reader(c.config.api_host, c.config.api_port)!
+    defer { stream.close() }
 
-    if resp.status_code != 200 {
-        return error('Erreur API (${resp.status_code}): ${resp.body}\nVérifiez votre configuration dans ${config_file}')
-    }
+    stream.send_request(request_str)!
 
-    mut lines := resp.body.split('\n')
-    for line in lines {
-        if !line.starts_with('data: ') {
-            continue
-        }
+    mut response_received := []bool{len: 1, init: false}
 
-        line_data := line[6..]
-        if line_data == '[DONE]' || line_data.len == 0 {
-            continue
-        }
-
+    stream.read_stream(fn [response_received] (line_data string) ! {
         chat_response := json.decode(ChatResponse, line_data) or {
             eprintln('Erreur de décodage: ${err}')
-            continue
+            return
         }
 
         if chat_response.choices.len > 0 {
             if chat_response.choices[0].finish_reason == 'stop' {
-                break
+                return
             }
             if chat_response.choices[0].delta.content.len > 0 {
                 content := chat_response.choices[0].delta.content
                 print(content)
                 flush_stdout()
-                response_received = true
+                unsafe {
+                    response_received[0] = true
+                }
             }
         }
-    }
+    })!
 
-    if !response_received {
-        return error('Aucune réponse reçue de l\'API. Vérifiez votre configuration dans ${config_file}\nVérifiez aussi que votre API key est valide et que vous avez accès au modèle ${c.config.api_model}')
+    if !response_received[0] {
+        return error('Aucune réponse reçue de l\'API. Vérifiez votre configuration dans ${config_file}')
     }
 
     println('')

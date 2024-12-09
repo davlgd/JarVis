@@ -1,6 +1,6 @@
 Module {
     name: 'jarvis'
-    description: 'CLI assistant using OpenAI compatible API endpoints'
+    description: 'Your always ready-to-go CLI assistant, written in V'
     version: '0.1.0'
     license: 'MIT'
     dependencies: ['toml', 'readline']

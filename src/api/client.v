@@ -5,8 +5,9 @@ import json
 import os
 import display
 
-
 const config_file = os.join_path(os.home_dir(), '.config', 'jarvis', 'config.toml')
+const system_prompt = 'You are a helpful assistant named Jarvis, who helps developers to make their life easier every day through the CLI. You make clear, concise, and structured answers, easy to read in a command line interface.'
+const temperature = 1.0
 
 pub struct Client {
     config Config
@@ -60,14 +61,14 @@ pub fn (c Client) stream_completion(prompt string) ! {
         messages: [
             Message{
                 role: 'system'
-                content: 'Tu es un assistant qui aide à produire du code de qualité.'
+                content: system_prompt
             },
             Message{
                 role: 'user'
                 content: prompt
             }
         ]
-        temperature: 1.0
+        temperature: temperature
         stream: true
     }
 
@@ -97,7 +98,7 @@ pub fn (c Client) stream_completion(prompt string) ! {
 
     stream.read_stream(fn [response_received] (line_data string) ! {
         chat_response := json.decode(ChatResponse, line_data) or {
-            eprintln('Erreur de décodage: ${err}')
+            eprintln('Decoding error: ${err}')
             return
         }
 
@@ -134,7 +135,7 @@ struct Model {
 pub fn (c Client) list_models() ![]string {
     protocol := if c.config.api_tls { 'https' } else { 'http' }
     url := '${protocol}://${c.config.api_host}:${c.config.api_port}/v1/models'
-    println('Récupération des modèles depuis ${url}...')
+    println('Fetching models from ${url}...')
 
     mut req := http.new_request(.get, url, '')
     if c.config.api_key.len > 0 {
@@ -144,7 +145,7 @@ pub fn (c Client) list_models() ![]string {
     resp := req.do()!
 
     if resp.status_code != 200 {
-        return error('Erreur API (${resp.status_code}): ${resp.body}\nVérifiez votre configuration dans ${config_file}')
+        return error('API error (${resp.status_code}): ${resp.body}\nCheck your configuration in ${config_file}')
     }
 
     models := json.decode(ModelsResponse, resp.body)!
@@ -159,7 +160,7 @@ pub fn (c Client) is_model_supported(model_name string) !bool {
 pub fn (c Client) validate_model(model_name string) ! {
     models := c.list_models()!
     if model_name !in models {
-        mut error_msg := 'Le modèle "${model_name}" n\'est pas supporté.\n'
+        mut error_msg := 'The model "${model_name}" is not supported.\n'
         display.models_list(models)
         return error(error_msg)
     }

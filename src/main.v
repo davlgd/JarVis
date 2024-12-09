@@ -34,7 +34,7 @@ fn config_to_api(cfg config.Config) api.Config {
 
 fn main() {
     mut app := cli.Command{
-        name: 'jarvis'
+        name: 'JarVis'
         description: 'CLI assistant using OpenAI compatible API'
         version: '0.1.0'
         posix_mode: true

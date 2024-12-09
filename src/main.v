@@ -1,9 +1,10 @@
 module main
 
-import os
 import cli
 import config
 import api
+import display
+import os
 
 fn config_to_api(cfg config.Config) api.Config {
     return api.Config{
@@ -39,9 +40,7 @@ fn main() {
                     cfg := config.load_config()!
                     client := api.new_client(config_to_api(cfg))!
                     models := client.list_models()!
-                    for model in models {
-                        println(model)
-                    }
+                    display.models_list(models)
                 }
             },
             cli.Command{
@@ -50,7 +49,14 @@ fn main() {
                 required_args: 1
                 execute: fn (cmd cli.Command) ! {
                     mut cfg := config.load_config()!
-                    cfg.api_model = cmd.args[0]
+                    client := api.new_client(config_to_api(cfg))!
+
+                    // Valider le modèle avant de changer
+                    new_model := cmd.args[0]
+                    client.validate_model(new_model)!
+
+                    // Si la validation passe, on peut changer le modèle
+                    cfg.api_model = new_model
                     config.save_config(cfg)!
                     println('Switched to model: ${cfg.api_model}')
                 }

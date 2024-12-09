@@ -3,6 +3,7 @@ module api
 import net.http
 import json
 import os
+import display
 
 
 const config_file = os.join_path(os.home_dir(), '.config', 'jarvis', 'config.toml')
@@ -136,7 +137,9 @@ pub fn (c Client) list_models() ![]string {
     println('Récupération des modèles depuis ${url}...')
 
     mut req := http.new_request(.get, url, '')
-    req.header.add(http.CommonHeader.authorization, 'Bearer ${c.config.api_key}')
+    if c.config.api_key.len > 0 {
+        req.header.add(http.CommonHeader.authorization, 'Bearer ${c.config.api_key}')
+    }
 
     resp := req.do()!
 
@@ -146,6 +149,20 @@ pub fn (c Client) list_models() ![]string {
 
     models := json.decode(ModelsResponse, resp.body)!
     return models.data.map(it.id)
+}
+
+pub fn (c Client) is_model_supported(model_name string) !bool {
+    models := c.list_models()!
+    return model_name in models
+}
+
+pub fn (c Client) validate_model(model_name string) ! {
+    models := c.list_models()!
+    if model_name !in models {
+        mut error_msg := 'Le modèle "${model_name}" n\'est pas supporté.\n'
+        display.models_list(models)
+        return error(error_msg)
+    }
 }
 
 fn flush_stdout() {

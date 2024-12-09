@@ -3,7 +3,7 @@ module api
 import net.http
 import json
 import os
-import time
+
 
 const config_file = os.join_path(os.home_dir(), '.config', 'jarvis', 'config.toml')
 
@@ -48,9 +48,6 @@ struct ChatResponse {
 }
 
 pub fn new_client(config Config) !Client {
-    if config.api_key.len == 0 {
-        return error('API key non configurée dans ${config_file}')
-    }
     return Client{
         config: config
     }
@@ -78,7 +75,9 @@ pub fn (c Client) stream_completion(prompt string) ! {
     mut headers := []string{}
     headers << 'POST /v1/chat/completions HTTP/1.1'
     headers << 'Host: ${c.config.api_host}'
-    headers << 'Authorization: Bearer ${c.config.api_key}'
+    if c.config.api_key.len > 0 {
+        headers << 'Authorization: Bearer ${c.config.api_key}'
+    }
     headers << 'Content-Type: application/json'
     headers << 'Accept: text/event-stream'
     headers << 'Content-Length: ${request_data.len}'
@@ -88,7 +87,7 @@ pub fn (c Client) stream_completion(prompt string) ! {
 
     request_str := headers.join('\r\n')
 
-    mut stream := new_stream_reader(c.config.api_host, c.config.api_port)!
+    mut stream := new_stream_reader(c.config.api_host, c.config.api_port, c.config.api_tls)!
     defer { stream.close() }
 
     stream.send_request(request_str)!

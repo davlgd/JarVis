@@ -6,44 +6,66 @@ import net
 struct StreamReader {
 mut:
     tcp_conn &net.TcpConn
-    ssl_conn &ssl.SSLConn
-    buffer   []u8
-    line     string
+    ssl_conn ?&ssl.SSLConn
+    use_tls  bool
 }
 
-fn new_stream_reader(host string, port string) !&StreamReader {
+fn new_stream_reader(host string, port string, use_tls bool) !&StreamReader {
     mut tcp_conn := net.dial_tcp('${host}:${port}')!
-    mut ssl_conn := ssl.new_ssl_conn()!
-    ssl_conn.connect(mut tcp_conn, host)!
 
     return &StreamReader{
         tcp_conn: tcp_conn
-        ssl_conn: ssl_conn
-        buffer: []u8{len: 4096}
-        line: ''
+        ssl_conn: if use_tls {
+            mut conn := ssl.new_ssl_conn()!
+            conn.connect(mut tcp_conn, host)!
+            conn
+        } else {
+            none
+        }
+        use_tls: use_tls
     }
 }
 
 fn (mut sr StreamReader) send_request(request_str string) ! {
-    sr.ssl_conn.write_string(request_str)!
+    if sr.use_tls {
+        if mut conn := sr.ssl_conn {
+            conn.write_string(request_str)!
+        }
+    } else {
+        sr.tcp_conn.write_string(request_str)!
+    }
 }
 
 fn (mut sr StreamReader) close() {
-    sr.ssl_conn.shutdown() or {}
+    if sr.use_tls {
+        if mut conn := sr.ssl_conn {
+            conn.shutdown() or {}
+        }
+    }
     sr.tcp_conn.close() or {}
 }
 
 fn (mut sr StreamReader) read_stream(callback fn (string) !) ! {
     mut headers_done := false
     mut line := ''
+    mut buffer := []u8{len: 4096}
 
     for {
-        n := sr.ssl_conn.read(mut sr.buffer)!
+        n := if sr.use_tls {
+            if mut conn := sr.ssl_conn {
+                conn.read(mut buffer)!
+            } else {
+                0
+            }
+        } else {
+            sr.tcp_conn.read(mut buffer)!
+        }
+
         if n <= 0 {
             break
         }
 
-        chunk := sr.buffer[..n].bytestr()
+        chunk := buffer[..n].bytestr()
 
         if !headers_done {
             if chunk.contains('\r\n\r\n') {

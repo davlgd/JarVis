@@ -5,6 +5,22 @@ import config
 import api
 import display
 import os
+import readline
+
+fn interactive_mode() ! {
+    cfg := config.load_config()!
+    client := api.new_client(config_to_api(cfg))!
+
+    println('JarVis, ready to help:')
+    input := readline.read_line('> ')!
+    if input.trim_space() == '' {
+        return
+    }
+    if input == 'exit' || input == 'quit' {
+        return
+    }
+    client.stream_completion(input)!
+}
 
 fn config_to_api(cfg config.Config) api.Config {
     return api.Config{
@@ -24,7 +40,7 @@ fn main() {
         posix_mode: true
         execute: fn (cmd cli.Command) ! {
             if cmd.args.len == 0 {
-                cmd.execute_help()
+                interactive_mode()!
                 return
             }
             request := cmd.args.join(' ')
@@ -51,11 +67,9 @@ fn main() {
                     mut cfg := config.load_config()!
                     client := api.new_client(config_to_api(cfg))!
 
-                    // Valider le modèle avant de changer
                     new_model := cmd.args[0]
                     client.validate_model(new_model)!
 
-                    // Si la validation passe, on peut changer le modèle
                     cfg.api_model = new_model
                     config.save_config(cfg)!
                     println('Switched to model: ${cfg.api_model}')

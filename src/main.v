@@ -6,10 +6,23 @@ import api
 import display
 import os
 import readline
+import term
+
+fn check_server_availability(client api.Client) ! {
+    client.list_models() or {
+        eprintln(term.bright_red('\nError: Cannot connect to API server'))
+        eprintln(term.gray('Please check:'))
+        eprintln(term.gray('  1. Server is running'))
+        eprintln(term.gray('  2. Server URL: ${client.config.api_host}:${client.config.api_port}'))
+        eprintln(term.gray('  3. Configuration in ~/.config/jarvis/config.toml is correct'))
+        exit(1)
+    }
+}
 
 fn interactive_mode() ! {
     cfg := config.load_config()!
     client := api.new_client(config_to_api(cfg))!
+    check_server_availability(client)!
 
     println('JarVis, ready to help:')
     input := readline.read_line('> ')!
@@ -34,18 +47,20 @@ fn config_to_api(cfg config.Config) api.Config {
 
 fn main() {
     mut app := cli.Command{
-        name: 'JarVis'
+        name: 'jarvis'
         description: 'CLI assistant using OpenAI compatible API'
         version: '0.1.0'
         posix_mode: true
         execute: fn (cmd cli.Command) ! {
+            cfg := config.load_config()!
+            client := api.new_client(config_to_api(cfg))!
+            check_server_availability(client)!
+
             if cmd.args.len == 0 {
                 interactive_mode()!
                 return
             }
             request := cmd.args.join(' ')
-            cfg := config.load_config()!
-            client := api.new_client(config_to_api(cfg))!
             client.stream_completion(request)!
         }
         commands: [

@@ -9,10 +9,6 @@ const config_file = os.join_path(os.home_dir(), '.config', 'jarvis', 'config.tom
 const system_prompt = 'You are a helpful assistant named Jarvis, who helps developers to make their life easier every day through the CLI. You make clear, concise, and structured answers, easy to read in a command line interface.'
 const temperature = 1.0
 
-pub struct Client {
-    config Config
-}
-
 pub struct Config {
 pub:
     api_host  string
@@ -20,6 +16,11 @@ pub:
     api_key   string
     api_model string
     api_tls   bool
+}
+
+pub struct Client {
+pub:
+    config Config
 }
 
 struct Message {
@@ -135,7 +136,6 @@ struct Model {
 pub fn (c Client) list_models() ![]string {
     protocol := if c.config.api_tls { 'https' } else { 'http' }
     url := '${protocol}://${c.config.api_host}:${c.config.api_port}/v1/models'
-    println('Fetching models from ${url}...')
 
     mut req := http.new_request(.get, url, '')
     if c.config.api_key.len > 0 {
@@ -145,7 +145,7 @@ pub fn (c Client) list_models() ![]string {
     resp := req.do()!
 
     if resp.status_code != 200 {
-        return error('API error (${resp.status_code}): ${resp.body}\nCheck your configuration in ${config_file}')
+        return error('Erreur API (${resp.status_code}): ${resp.body}')
     }
 
     models := json.decode(ModelsResponse, resp.body)!

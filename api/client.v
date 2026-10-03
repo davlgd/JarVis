@@ -13,8 +13,6 @@ You make clear, concise, and structured answers, easy to read in a command line 
 // default_temperature is the sampling temperature used when Config.temperature is not set.
 pub const default_temperature = 1.0
 
-const timeout_seconds = 30
-
 // Config describes the API server to talk to and how to query it.
 pub struct Config {
 pub:
@@ -87,51 +85,63 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 		stream:      true
 	}
 
-	request_data := json2.encode(request)
+	mut req := c.new_request(.post, '/v1/chat/completions', json2.encode(request))
+	req.add_header(.content_type, 'application/json')
+	req.add_header(.accept, 'text/event-stream')
+	// A retry would replay an answer already partly given to `on_chunk`
+	req.max_retries = 1
 
-	mut headers := []string{}
-	headers << 'POST /v1/chat/completions HTTP/1.1'
-	headers << 'Host: ${c.config.api_host}'
-	if c.config.api_key.len > 0 {
-		headers << 'Authorization: Bearer ${c.config.api_key}'
-	}
-	headers << 'Content-Type: application/json'
-	headers << 'Accept: text/event-stream'
-	headers << 'Content-Length: ${request_data.len}'
-	headers << 'Connection: close'
-	headers << ''
-	headers << request_data
-
-	request_str := headers.join('\r\n')
-
-	mut stream := new_stream_reader(c.config.api_host, c.config.api_port, c.config.api_tls)!
-	defer { stream.close() }
-
-	stream.send_request(request_str) or { return error('Failed to send request: ${err}') }
-
-	mut response_received := []bool{len: 1, init: false}
-
-	stream.read_stream(fn [response_received, on_chunk] (line_data string) ! {
-		chat_response := json2.decode[ChatResponse](line_data) or {
-			return error('Invalid event from the API (${err}): ${line_data}')
+	mut state := &StreamState{}
+	on_event := fn [mut state, on_chunk] (data string) ! {
+		chat_response := json2.decode[ChatResponse](data) or {
+			return error('Invalid event from the API (${err}): ${data}')
 		}
-
 		if chat_response.choices.len > 0 {
-			if chat_response.choices[0].finish_reason == 'stop' {
-				return
-			}
-			if chat_response.choices[0].delta.content.len > 0 {
-				on_chunk(chat_response.choices[0].delta.content)
-				unsafe {
-					response_received[0] = true
-				}
+			content := chat_response.choices[0].delta.content
+			if content.len > 0 {
+				on_chunk(content)
+				state.received = true
 			}
 		}
-	}) or { return error('Stream read error: ${err}') }
+	}
+	// net.http handles the HTTP framing (chunked encoding, Content-Length, end of
+	// the connection) and gives the decoded body as it arrives.
+	req.on_progress_body = fn [mut state, on_event] (_ &http.Request, chunk []u8, _ u64, _ u64, status int) ! {
+		// An error body is read from the response once complete
+		if status != 200 {
+			return
+		}
+		state.parser.feed(chunk, on_event)!
+		// Do not wait for the server to close the connection after `[DONE]`
+		if state.parser.done {
+			return error(stream_done)
+		}
+	}
 
-	if !response_received[0] {
+	resp := req.do() or {
+		if !state.parser.done {
+			return error('Chat completion request failed: ${err}')
+		}
+		http.Response{
+			status_code: 200
+		}
+	}
+	if resp.status_code != 200 {
+		return error('Chat completion API error (${resp.status_code}): ${resp.body.trim_space()}')
+	}
+	state.parser.finish(on_event)!
+
+	if !state.received {
 		return error('No response received from the API')
 	}
+}
+
+const stream_done = 'end of the event stream'
+
+struct StreamState {
+mut:
+	parser   EventStreamParser
+	received bool
 }
 
 struct Answer {
@@ -156,16 +166,19 @@ struct Model {
 	id string
 }
 
+fn (c Client) new_request(method http.Method, path string, data string) http.Request {
+	protocol := if c.config.api_tls { 'https' } else { 'http' }
+	mut req := http.new_request(method, '${protocol}://${c.config.api_host}:${c.config.api_port}${path}',
+		data)
+	if c.config.api_key.len > 0 {
+		req.add_header(.authorization, 'Bearer ${c.config.api_key}')
+	}
+	return req
+}
+
 // list_models returns the ids of the models available on the API server.
 pub fn (c Client) list_models() ![]string {
-	protocol := if c.config.api_tls { 'https' } else { 'http' }
-	url := '${protocol}://${c.config.api_host}:${c.config.api_port}/v1/models'
-
-	mut req := http.new_request(.get, url, '')
-	if c.config.api_key.len > 0 {
-		req.header.add(http.CommonHeader.authorization, 'Bearer ${c.config.api_key}')
-	}
-
+	req := c.new_request(.get, '/v1/models', '')
 	resp := req.do() or { return error('Models API error: ${err}') }
 
 	if resp.status_code != 200 {

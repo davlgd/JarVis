@@ -14,7 +14,7 @@ fn check_server_availability(client api.Client) ! {
 		eprintln(term.gray('Please check:'))
 		eprintln(term.gray('  1. Server is running'))
 		eprintln(term.gray('  2. Server URL: ${client.config.api_host}:${client.config.api_port}'))
-		eprintln(term.gray('  3. Configuration in ~/.config/jarvis/config.toml is correct'))
+		eprintln(term.gray('  3. Configuration in ${config.file_path()} is correct'))
 		log.debug(err.str())
 		exit(1)
 	}

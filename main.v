@@ -27,19 +27,28 @@ fn check_server_availability(client api.Client) {
 	}
 }
 
-fn interactive_mode(client api.Client) ! {
-	println('JarVis, ready to help:')
-	// vlib's readline spins on the first key press (#3): read plain lines
-	input := os.input_opt('> ') or { return }
-	if input.trim_space() == '' {
-		return
-	}
-	if input == 'exit' || input == 'quit' {
-		return
-	}
-	ask(client, input) or {
-		log.error('Failed to stream completion: ${err}')
-		exit(1)
+// interactive_mode asks the questions typed by the user, one after the other,
+// until `exit`, `quit`, the end of input (Ctrl-D) or Ctrl-C.
+fn interactive_mode(client api.Client) {
+	os.signal_opt(.int, fn (_ os.Signal) {
+		println('')
+		exit(0)
+	}) or {}
+	println('JarVis, ready to help (exit, quit or Ctrl-D to leave):')
+	for {
+		// vlib's readline spins on the first key press (#3): read plain lines
+		input := os.input_opt('> ') or {
+			println('')
+			return
+		}
+		question := input.trim_space()
+		if question == '' {
+			continue
+		}
+		if question in ['exit', 'quit'] {
+			return
+		}
+		ask(client, question) or { eprintln(term.bright_red('Error: ${err}')) }
 	}
 }
 
@@ -101,7 +110,7 @@ fn main() {
 			check_server_availability(client)
 
 			if cmd.args.len == 0 {
-				interactive_mode(client)!
+				interactive_mode(client)
 				return
 			}
 			request := cmd.args.join(' ')

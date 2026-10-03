@@ -113,19 +113,18 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 			}
 		}
 	}
+	// net.http takes the status passed to on_progress_body from the first socket
+	// read only: when that read ends inside the status code, it is a truncated
+	// number (e.g. `2` for `200`). on_progress gets the raw response bytes first,
+	// so the whole status line is read there.
+	req.on_progress = fn [mut state] (_ &http.Request, chunk []u8, _ u64) ! {
+		state.read_status(chunk)
+	}
 	// net.http handles the HTTP framing (chunked encoding, Content-Length, end of
 	// the connection) and gives the decoded body as it arrives.
 	req.on_progress_body = fn [mut state, on_event] (_ &http.Request, chunk []u8, _ u64, _ u64, status int) ! {
 		// An error body is read from the response once complete
-		if status >= 100 && status != 200 {
-			return
-		}
-		// net.http takes the status from the first socket read only: when that read
-		// ends inside the status code, `status` is a truncated number (e.g. `2` for
-		// `200`, `4` for `429`). The body is then kept until the whole response, and
-		// its real status, is there.
-		if status < 100 {
-			state.pending << chunk
+		if state.status_or(status) != 200 {
 			return
 		}
 		state.parser.feed(chunk, on_event) or {
@@ -153,7 +152,6 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	if resp.status_code != 200 {
 		return error('Chat completion API error (${resp.status_code}): ${resp.body.trim_space()}')
 	}
-	state.parser.feed(state.pending, on_event)!
 	state.parser.finish(on_event)!
 
 	if !state.received {
@@ -166,9 +164,34 @@ const stream_done = 'end of the event stream'
 struct StreamState {
 mut:
 	parser   EventStreamParser
-	pending  []u8   // body received while the status is not known yet
+	head     []u8   // start of the raw response, until the status line is complete
+	status   int    // status code read from the status line, 0 while unknown
 	failure  string // error met while handling the events
 	received bool
+}
+
+// read_status reads the status code from the status line of the raw response.
+fn (mut s StreamState) read_status(chunk []u8) {
+	if s.status != 0 || s.head.len > 1024 {
+		return
+	}
+	s.head << chunk
+	end := s.head.index(`\n`)
+	if end < 0 {
+		return
+	}
+	// `HTTP/1.1 200 OK`
+	fields := s.head[..end].bytestr().trim_space().split(' ')
+	if fields.len >= 2 && fields[0].starts_with('HTTP/') && fields[1].len == 3 {
+		s.status = fields[1].int()
+	}
+	s.head = []u8{}
+}
+
+// status_or returns the status code read from the status line, or `fallback`
+// when it is unknown (e.g. with HTTP/2, where on_progress gets the body only).
+fn (s &StreamState) status_or(fallback int) int {
+	return if s.status != 0 { s.status } else { fallback }
 }
 
 struct Answer {

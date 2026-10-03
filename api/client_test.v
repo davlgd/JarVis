@@ -6,6 +6,11 @@ import time
 // serve answers one connection on a local port with `parts`, written one by one
 // with a pause in between so that the client reads them separately.
 fn serve(mut listener net.TcpListener, parts []string) {
+	serve_and_hold(mut listener, parts, 0)
+}
+
+// serve_and_hold is serve, keeping the connection open for `hold` afterwards.
+fn serve_and_hold(mut listener net.TcpListener, parts []string, hold time.Duration) {
 	mut conn := listener.accept() or { return }
 	defer {
 		conn.close() or {}
@@ -16,15 +21,20 @@ fn serve(mut listener net.TcpListener, parts []string) {
 		conn.write_string(part) or { return }
 		time.sleep(50 * time.millisecond)
 	}
+	time.sleep(hold)
 }
 
 fn complete_from(parts []string) !string {
+	return complete_from_held(parts, 0)
+}
+
+fn complete_from_held(parts []string, hold time.Duration) !string {
 	mut listener := net.listen_tcp(.ip, '127.0.0.1:0')!
 	defer {
 		listener.close() or {}
 	}
 	port := listener.addr()!.port()!
-	spawn serve(mut listener, parts)
+	spawn serve_and_hold(mut listener, parts, hold)
 	client := new_client(Config{
 		api_host:  '127.0.0.1'
 		api_port:  port.str()
@@ -75,5 +85,18 @@ fn test_error_status_split_across_reads_with_event_body() {
 			continue
 		}
 		assert false, 'no error for split "${split}"'
+	}
+}
+
+fn test_status_line_split_with_connection_left_open() {
+	// Chunked body without its last chunk: only `[DONE]` ends the answer, and
+	// the server keeps the connection open for longer than the test should take.
+	for split in ['HTTP/1.1 2', 'HTTP/1.1 20'] {
+		rest := 'HTTP/1.1 200 OK\r\n'[split.len..]
+		headers := 'Content-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n'
+		chunk := '${event.len:x}\r\n${event}\r\n'
+		started := time.now()
+		assert complete_from_held([split, rest + headers, chunk], 5 * time.second)! == 'hello'
+		assert time.since(started) < 3 * time.second
 	}
 }

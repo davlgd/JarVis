@@ -173,6 +173,9 @@ fn (c Client) new_request(method http.Method, path string, data string) http.Req
 	if c.config.api_key.len > 0 {
 		req.add_header(.authorization, 'Bearer ${c.config.api_key}')
 	}
+	// A redirect would forward the API key and the prompt to wherever it points:
+	// it is reported as an error (non-200 status) instead.
+	req.allow_redirect = false
 	return req
 }
 

@@ -52,16 +52,40 @@ fn interactive_mode(client api.Client) {
 	}
 }
 
+struct Output {
+mut:
+	printed bool
+}
+
 fn ask(client api.Client, prompt string) ! {
-	client.stream_completion(prompt, print_chunk) or {
-		return error('${err}. Check your configuration in ${config.file_path()}')
+	mut output := &Output{}
+	client.stream_completion(prompt, fn [mut output] (chunk string) {
+		print(chunk)
+		flush_stdout()
+		output.printed = true
+	}) or {
+		// The error starts on its own line after a partial answer
+		if output.printed {
+			println('')
+		}
+		if needs_config_hint(err) {
+			return error('${err}. Check your configuration in ${config.file_path()}')
+		}
+		return err
 	}
 	println('')
 }
 
-fn print_chunk(chunk string) {
-	print(chunk)
-	flush_stdout()
+// needs_config_hint reports whether `err` may come from a wrong configuration:
+// unreachable server, rejected API key, unknown model or path.
+fn needs_config_hint(err IError) bool {
+	if err is api.RequestError {
+		return true
+	}
+	if err is api.ApiError {
+		return err.status in [401, 403, 404]
+	}
+	return false
 }
 
 fn config_to_api(cfg config.Settings) api.Config {

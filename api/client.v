@@ -79,6 +79,34 @@ struct ChatResponse {
 	error   ChatError
 }
 
+// ApiError is an error status (non-200) returned by the API server.
+pub struct ApiError {
+	Error
+pub:
+	operation string // `Models` or `Chat completion`
+	status    int
+	body      string
+}
+
+// msg returns the operation, the status code and the body of the response.
+pub fn (e ApiError) msg() string {
+	return '${e.operation} API error (${e.status}): ${e.body}'
+}
+
+// RequestError is a request that got no response from the API server (e.g. the
+// server cannot be reached).
+pub struct RequestError {
+	Error
+pub:
+	operation string // `Models` or `Chat completion`
+	reason    string
+}
+
+// msg returns the operation and why it failed.
+pub fn (e RequestError) msg() string {
+	return '${e.operation} request failed: ${e.reason}'
+}
+
 // new_client returns a client for the API described by `config`.
 pub fn new_client(config Config) !Client {
 	return Client{
@@ -128,7 +156,7 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 		}
 		if chat_response.choices.len > 0 {
 			if chat_response.choices[0].finish_reason.len > 0 {
-				state.finished = true
+				state.finish_reason = chat_response.choices[0].finish_reason
 			}
 			content := chat_response.choices[0].delta.content
 			if content.len > 0 {
@@ -167,18 +195,38 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 			return error(state.failure)
 		}
 		if !state.parser.done {
-			return error('Chat completion request failed: ${err}')
+			return RequestError{
+				operation: 'Chat completion'
+				reason:    err.msg()
+			}
 		}
 		http.Response{
 			status_code: 200
 		}
 	}
 	if resp.status_code != 200 {
-		return error('Chat completion API error (${resp.status_code}): ${resp.body.trim_space()}')
+		return ApiError{
+			operation: 'Chat completion'
+			status:    resp.status_code
+			body:      resp.body.trim_space()
+		}
 	}
 	// Without `[DONE]` nor a finish reason, the connection ended mid-answer
-	if !state.parser.done && !state.finished {
+	if !state.parser.done && state.finish_reason == '' {
 		return error('The stream ended before the answer was complete')
+	}
+	// The answer was stopped by the server rather than finished by the model
+	match state.finish_reason {
+		'length' {
+			if !state.received {
+				return error('The model reached its length limit before answering (finish_reason: length)')
+			}
+			return error('The answer was cut by the length limit (finish_reason: length)')
+		}
+		'content_filter' {
+			return error('The answer was blocked by the content filter (finish_reason: content_filter)')
+		}
+		else {}
 	}
 
 	if !state.received {
@@ -192,12 +240,12 @@ const max_error_body = 64 * 1024
 
 struct StreamState {
 mut:
-	parser   EventStreamParser
-	head     []u8   // start of the raw response, until the status line is complete
-	status   int    // status code read from the status line, 0 while unknown
-	failure  string // error met while handling the events
-	finished bool   // a choice gave its finish reason
-	received bool
+	parser        EventStreamParser
+	head          []u8   // start of the raw response, until the status line is complete
+	status        int    // status code read from the status line, 0 while unknown
+	failure       string // error met while handling the events
+	finish_reason string // finish reason given by a choice, if any
+	received      bool
 }
 
 // read_status reads the status code from the status line of the raw response.
@@ -293,10 +341,19 @@ fn find_ca_bundle() !string {
 // list_models returns the ids of the models available on the API server.
 pub fn (c Client) list_models() ![]string {
 	req := c.new_request(.get, '/v1/models', '')!
-	resp := req.do() or { return error('Models API error: ${err}') }
+	resp := req.do() or {
+		return RequestError{
+			operation: 'Models'
+			reason:    err.msg()
+		}
+	}
 
 	if resp.status_code != 200 {
-		return error('Models API error (${resp.status_code}): ${resp.body}')
+		return ApiError{
+			operation: 'Models'
+			status:    resp.status_code
+			body:      resp.body
+		}
 	}
 
 	models := json2.decode[ModelsResponse](resp.body)!

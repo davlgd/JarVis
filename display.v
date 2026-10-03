@@ -1,8 +1,8 @@
-module display
+module main
 
 import term
 
-pub fn models_list(models []string) {
+fn display_models_list(models []string) {
 	list := models.map('${term.gray('  -')} ${term.gray(it)}').join('\n')
 	println('🔎 ${models.len} models available:\n${list}')
 }

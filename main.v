@@ -3,7 +3,6 @@ module main
 import api
 import cli
 import config
-import display
 import log
 import os
 import readline
@@ -43,13 +42,25 @@ fn interactive_mode() ! {
 	if input == 'exit' || input == 'quit' {
 		return
 	}
-	client.stream_completion(input) or {
+	ask(client, input) or {
 		log.error('Failed to stream completion: ${err}')
 		exit(1)
 	}
 }
 
-fn config_to_api(cfg config.Config) api.Config {
+fn ask(client api.Client, prompt string) ! {
+	client.stream_completion(prompt, print_chunk) or {
+		return error('${err}. Check your configuration in ${config.file_path()}')
+	}
+	println('')
+}
+
+fn print_chunk(chunk string) {
+	print(chunk)
+	flush_stdout()
+}
+
+fn config_to_api(cfg config.Settings) api.Config {
 	return api.Config{
 		api_host:  cfg.api_host
 		api_port:  cfg.api_port
@@ -90,7 +101,7 @@ fn main() {
 				return
 			}
 			request := cmd.args.join(' ')
-			client.stream_completion(request)!
+			ask(client, request)!
 		}
 		commands:    [
 			cli.Command{
@@ -100,7 +111,7 @@ fn main() {
 					cfg := config.load_config()!
 					client := api.new_client(config_to_api(cfg))!
 					models := client.list_models()!
-					display.models_list(models)
+					display_models_list(models)
 				}
 			},
 			cli.Command{
@@ -112,7 +123,10 @@ fn main() {
 					client := api.new_client(config_to_api(cfg))!
 
 					new_model := cmd.args[0]
-					client.validate_model(new_model)!
+					client.validate_model(new_model) or {
+						display_models_list(client.list_models()!)
+						return err
+					}
 
 					cfg.api_model = new_model
 					config.save_config(cfg)!

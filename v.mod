@@ -3,5 +3,6 @@ Module {
     description: 'Your always ready-to-go CLI assistant, written in V'
     version: '0.2.0'
     license: 'MIT'
-    dependencies: ['toml', 'readline']
+    repo_url: 'https://github.com/davlgd/JarVis'
+    dependencies: []
 }

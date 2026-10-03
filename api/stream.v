@@ -93,7 +93,12 @@ fn (mut sr StreamReader) read_stream(callback fn (string) !) ! {
 			}
 
 			line_data := current_line[6..]
-			if line_data == '[DONE]' || line_data.len == 0 {
+			// The server may keep the connection open after the last event:
+			// stop on `[DONE]` instead of waiting for the read to time out.
+			if line_data == '[DONE]' {
+				return
+			}
+			if line_data.len == 0 {
 				continue
 			}
 

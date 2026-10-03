@@ -118,3 +118,22 @@ fn test_finish_reason_without_done() {
 	body := 'data: {"choices":[{"delta":{"content":"hello"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
 	assert complete_from([headers, body])! == 'hello'
 }
+
+fn test_long_answer_and_long_error_body() {
+	mut body := ''
+	for _ in 0 .. 3000 {
+		body += 'data: {"choices":[{"delta":{"content":"word "}}]}\n\n'
+	}
+	body += 'data: [DONE]\n\n'
+	headers := 'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: ${body.len}\r\n\r\n'
+	assert body.len > max_error_body
+	assert complete_from([headers, body])! == 'word '.repeat(3000)
+
+	error_body := 'x'.repeat(max_error_body + 10)
+	error_headers := 'HTTP/1.1 500 Internal Server Error\r\nContent-Length: ${error_body.len}\r\n\r\n'
+	complete_from([error_headers, error_body]) or {
+		assert err.msg() == 'Chat completion API error (500): ${error_body[..max_error_body]}'
+		return
+	}
+	assert false
+}

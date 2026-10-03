@@ -110,6 +110,9 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	req.add_header(.accept, 'text/event-stream')
 	// A retry would replay an answer already partly given to `on_chunk`
 	req.max_retries = 1
+	// The events are handled as they arrive: only keep the start of the body in
+	// the response, enough for the diagnostic of an error status
+	req.stop_copying_limit = max_error_body
 
 	mut state := &StreamState{}
 	on_event := fn [mut state, on_chunk] (data string) ! {
@@ -181,6 +184,8 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 }
 
 const stream_done = 'end of the event stream'
+
+const max_error_body = 64 * 1024
 
 struct StreamState {
 mut:

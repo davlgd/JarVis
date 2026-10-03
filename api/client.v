@@ -51,12 +51,17 @@ struct ChatChoice {
 	finish_reason string
 }
 
+struct ChatError {
+	message string
+}
+
 struct ChatResponse {
 	id      string
 	object  string
 	created int
 	model   string
 	choices []ChatChoice
+	error   ChatError
 }
 
 // new_client returns a client for the API described by `config`.
@@ -96,6 +101,10 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 		chat_response := json2.decode[ChatResponse](data) or {
 			return error('Invalid event from the API (${err}): ${data}')
 		}
+		// An error met while generating the answer is sent as an event
+		if chat_response.error.message.len > 0 {
+			return error('Chat completion API error: ${chat_response.error.message}')
+		}
 		if chat_response.choices.len > 0 {
 			content := chat_response.choices[0].delta.content
 			if content.len > 0 {
@@ -107,15 +116,22 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	// net.http handles the HTTP framing (chunked encoding, Content-Length, end of
 	// the connection) and gives the decoded body as it arrives.
 	req.on_progress_body = fn [mut state, on_event] (_ &http.Request, chunk []u8, _ u64, _ u64, status int) ! {
-		// An error body is read from the response once complete. net.http takes the
-		// status from the first socket read only: when that read ends inside the
-		// status code, `status` is a truncated number (e.g. `2` for `200`) that
-		// cannot be trusted. The body is then parsed anyway: an error body holds no
-		// events, and the status of the whole response is checked below.
+		// An error body is read from the response once complete
 		if status >= 100 && status != 200 {
 			return
 		}
-		state.parser.feed(chunk, on_event)!
+		// net.http takes the status from the first socket read only: when that read
+		// ends inside the status code, `status` is a truncated number (e.g. `2` for
+		// `200`, `4` for `429`). The body is then kept until the whole response, and
+		// its real status, is there.
+		if status < 100 {
+			state.pending << chunk
+			return
+		}
+		state.parser.feed(chunk, on_event) or {
+			state.failure = err.msg()
+			return err
+		}
 		// Do not wait for the server to close the connection after `[DONE]`
 		if state.parser.done {
 			return error(stream_done)
@@ -123,6 +139,10 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	}
 
 	resp := req.do() or {
+		// An error from the event handling, as is
+		if state.failure.len > 0 {
+			return error(state.failure)
+		}
 		if !state.parser.done {
 			return error('Chat completion request failed: ${err}')
 		}
@@ -133,6 +153,7 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	if resp.status_code != 200 {
 		return error('Chat completion API error (${resp.status_code}): ${resp.body.trim_space()}')
 	}
+	state.parser.feed(state.pending, on_event)!
 	state.parser.finish(on_event)!
 
 	if !state.received {
@@ -145,6 +166,8 @@ const stream_done = 'end of the event stream'
 struct StreamState {
 mut:
 	parser   EventStreamParser
+	pending  []u8   // body received while the status is not known yet
+	failure  string // error met while handling the events
 	received bool
 }
 

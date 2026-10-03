@@ -55,3 +55,25 @@ fn test_error_status_split_across_reads() {
 		assert false, 'no error for split "${split}"'
 	}
 }
+
+fn test_error_event_after_content() {
+	body := 'data: {"choices":[{"delta":{"content":"hel"}}]}\n\ndata: {"error":{"message":"generation failed","type":"server_error","code":null}}\n\ndata: [DONE]\n\n'
+	headers := 'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: ${body.len}\r\n\r\n'
+	complete_from([headers, body]) or {
+		assert err.msg() == 'Chat completion API error: generation failed'
+		return
+	}
+	assert false
+}
+
+fn test_error_status_split_across_reads_with_event_body() {
+	headers := 'Content-Type: text/event-stream\r\nContent-Length: ${event.len}\r\n\r\n'
+	for split in ['HTTP/1.1 4', 'HTTP/1.1 42', 'HTTP/1.1 429'] {
+		rest := 'HTTP/1.1 429 Too Many Requests\r\n'[split.len..]
+		complete_from([split, rest + headers, event]) or {
+			assert err.msg().starts_with('Chat completion API error (429)')
+			continue
+		}
+		assert false, 'no error for split "${split}"'
+	}
+}

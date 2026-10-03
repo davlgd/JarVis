@@ -24,6 +24,8 @@ api_model = "qwen2.5-coder"
 api_tls = false
 ```
 
+`api_model` must be one of the models listed by the server (`jarvis list`); choose it with `jarvis switch <model>`.
+
 With `api_tls = true`, the server certificate is checked against the system bundle of trusted CA certificates (on Windows, the Windows certificate store). Set `api_ca_file` to the path of another PEM bundle (not supported with the Windows store), or `api_insecure = true` to skip the check (e.g. for a server with a self-signed certificate).
 
 ## Usage

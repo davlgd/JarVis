@@ -9,14 +9,17 @@ fail() {
 	exit 1
 }
 
+usage() {
+	echo "Usage: [PREFIX=<dir>] tools/build [--no-install]" >&2
+	exit 2
+}
+
+[ $# -le 1 ] || usage
 install=true
 case "${1:-}" in
 "") ;;
 --no-install) install=false ;;
-*)
-	echo "Usage: [PREFIX=<dir>] tools/build [--no-install]" >&2
-	exit 2
-	;;
+*) usage ;;
 esac
 
 # A relative PREFIX is relative to where the script is run from
@@ -25,6 +28,12 @@ case "$prefix" in
 /*) ;;
 *) prefix="$(pwd)/$prefix" ;;
 esac
+
+target="$prefix/bin/jarvis"
+# install would copy the binary into a directory instead of replacing it
+if [ "$install" = true ] && [ -d "$target" ]; then
+	fail "$target is a directory: remove it, or set PREFIX"
+fi
 
 cd "$(dirname "$0")/.."
 
@@ -35,7 +44,6 @@ if [ "$install" = false ]; then
 fi
 ok "JarVis built successfully"
 
-target="$prefix/bin/jarvis"
 if [ -e "$target" ]; then
 	echo "Replacing $target ($("$target" --version 2>/dev/null || echo "unknown version"))"
 fi

@@ -7,8 +7,11 @@ mut:
 	buffer  []u8     // received bytes not split into lines yet
 	data    []string // data fields of the event being read
 	skip_lf bool     // the last line ended with CR: a LF right after it belongs to it
+	started bool     // the start of the stream was checked for a byte order mark
 	done    bool     // `data: [DONE]` was received
 }
+
+const utf8_bom = [u8(0xef), 0xbb, 0xbf]
 
 // feed parses `bytes` and calls `on_event` with the data of each complete event.
 fn (mut p EventStreamParser) feed(bytes []u8, on_event fn (string) !) ! {
@@ -16,6 +19,16 @@ fn (mut p EventStreamParser) feed(bytes []u8, on_event fn (string) !) ! {
 		return
 	}
 	p.buffer << bytes
+	if !p.started {
+		// A UTF-8 byte order mark at the start of the stream is ignored
+		if p.buffer.len < utf8_bom.len && utf8_bom[..p.buffer.len] == p.buffer {
+			return
+		}
+		if p.buffer.len >= utf8_bom.len && p.buffer[..utf8_bom.len] == utf8_bom {
+			p.buffer = p.buffer[utf8_bom.len..].clone()
+		}
+		p.started = true
+	}
 	for !p.done {
 		if p.skip_lf && p.buffer.len > 0 {
 			if p.buffer[0] == `\n` {

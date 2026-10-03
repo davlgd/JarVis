@@ -47,6 +47,17 @@ fn test_cr_crlf_and_lf_line_endings() {
 	assert events.data == ['a\nb']
 }
 
+fn test_leading_byte_order_mark() {
+	body := '\xef\xbb\xbfdata: {"a":1}\n\ndata: [DONE]\n\n'
+	for step in [1, 2, 4, 4096] {
+		assert parse(body, step)! == ['{"a":1}']
+	}
+	// Only at the start of the stream
+	assert parse('data: a\n\n\xef\xbb\xbfdata: b\n\n', 1)! == ['a']
+	// A stream shorter than a byte order mark
+	assert parse('\xef', 1)! == []string{}
+}
+
 fn test_multiline_event() {
 	body := 'data: {\ndata: "a": 1\ndata: }\n\ndata:{"b":2}\n\n'
 	for step in [1, 5, 4096] {

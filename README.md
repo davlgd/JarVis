@@ -27,10 +27,10 @@ With `api_tls = true`, the server certificate is checked against the system bund
 ## Usage
 
 ```bash
-jarvis
+jarvis                    # interactive mode
 jarvis --help
-jarvis --list
-jarvis --switch llama3.3
+jarvis list               # list the models available on the server
+jarvis switch llama3.3    # use another model
 jarvis "Learn me something interesting about a programming language of your choice"
 ```
 

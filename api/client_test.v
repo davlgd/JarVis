@@ -137,3 +137,76 @@ fn test_long_answer_and_long_error_body() {
 	}
 	assert false
 }
+
+fn sse_response(body string) []string {
+	return [
+		'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: ${body.len}\r\n\r\n',
+		body,
+	]
+}
+
+fn test_length_limit() {
+	reasoning := 'data: {"choices":[{"delta":{"content":"","reasoning":"hmm"}}]}\n\n'
+	stop := 'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n'
+	complete_from(sse_response(reasoning + stop)) or {
+		assert err.msg() == 'The model reached its length limit before answering (finish_reason: length)'
+		return
+	}
+	assert false
+}
+
+fn test_answer_cut_by_length_limit() {
+	content := 'data: {"choices":[{"delta":{"content":"hel"}}]}\n\n'
+	stop := 'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n'
+	complete_from(sse_response(content + stop)) or {
+		assert err.msg() == 'The answer was cut by the length limit (finish_reason: length)'
+		return
+	}
+	assert false
+}
+
+fn test_content_filter() {
+	stop := 'data: {"choices":[{"delta":{},"finish_reason":"content_filter"}]}\n\ndata: [DONE]\n\n'
+	complete_from(sse_response(stop)) or {
+		assert err.msg() == 'The answer was blocked by the content filter (finish_reason: content_filter)'
+		return
+	}
+	assert false
+}
+
+fn test_api_error_has_its_status() {
+	body := '{"error":"model not found"}'
+	complete_from(['HTTP/1.1 404 Not Found\r\nContent-Length: ${body.len}\r\n\r\n', body]) or {
+		assert err is ApiError
+		if err is ApiError {
+			assert err.status == 404
+			assert err.body == body
+		}
+		return
+	}
+	assert false
+}
+
+fn test_unreachable_server_is_a_request_error() {
+	// A port with nothing listening on it
+	mut listener := net.listen_tcp(.ip, '127.0.0.1:0')!
+	port := listener.addr()!.port()!
+	listener.close()!
+	client := new_client(Config{
+		api_host:  '127.0.0.1'
+		api_port:  port.str()
+		api_model: 'test'
+	})!
+	if _ := client.list_models() {
+		assert false, 'list_models succeeded'
+	} else {
+		assert err is RequestError
+		assert err.msg().starts_with('Models request failed: ')
+	}
+	if _ := client.complete('hi') {
+		assert false, 'complete succeeded'
+	} else {
+		assert err is RequestError
+		assert err.msg().starts_with('Chat completion request failed: ')
+	}
+}

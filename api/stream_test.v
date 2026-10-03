@@ -5,7 +5,8 @@ mut:
 	data []string
 }
 
-// parse feeds `response` to a parser in pieces of `step` bytes, then ends the stream.
+// parse feeds `response` to a parser in pieces of `step` bytes, like
+// StreamReader.read_stream, then ends the stream as if the connection was closed.
 fn parse(response string, step int) ![]string {
 	mut events := &Events{}
 	callback := fn [mut events] (data string) ! {
@@ -14,6 +15,9 @@ fn parse(response string, step int) ![]string {
 	mut parser := EventStreamParser{}
 	bytes := response.bytes()
 	for i := 0; i < bytes.len && !parser.done; i += step {
+		if parser.body_done {
+			break
+		}
 		end := if i + step < bytes.len { i + step } else { bytes.len }
 		parser.feed(bytes[i..end], callback)!
 	}
@@ -58,13 +62,53 @@ fn test_last_line_without_newline() {
 	assert parse(response, 4)! == ['{"a":1}']
 }
 
-fn test_http_error() {
-	response := 'HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n{"error":"model not found"}'
-	parse(response, 4096) or {
-		assert err.msg() == 'API error (404): {"error":"model not found"}'
+fn expect_error(response string, step int, message string) {
+	parse(response, step) or {
+		assert err.msg() == message
 		return
 	}
-	assert false
+	assert false, 'no error for step ${step}'
+}
+
+fn test_http_error_with_its_whole_body() {
+	body := '{"error":"model not found"}'
+	message := 'API error (404): ${body}'
+	head := 'HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n'
+	for step in [1, 3, 4096] {
+		expect_error('${head}\r\n${body}', step, message)
+		expect_error('${head}Content-Length: ${body.len}\r\n\r\n${body}', step, message)
+		expect_error('${head}Transfer-Encoding: chunked\r\n\r\n' + chunked(body, 4), step,
+			message)
+	}
+}
+
+fn test_body_complete_without_done() {
+	body := 'data: {"a":1}\n\n'
+	mut events := &Events{}
+	callback := fn [mut events] (data string) ! {
+		events.data << data
+	}
+	for response in [
+		'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n' + chunked(body, 4),
+		'HTTP/1.1 200 OK\r\nContent-Length: ${body.len}\r\n\r\n${body}',
+	] {
+		events.data.clear()
+		mut parser := EventStreamParser{}
+		parser.feed(response.bytes(), callback)!
+		assert parser.body_done
+		parser.finish(callback)!
+		assert events.data == ['{"a":1}']
+	}
+}
+
+fn test_truncated_body() {
+	body := 'data: {"a":1}\n\ndata: {"b":2}\n\n'
+	message := 'Connection closed before the end of the response'
+	chunked_body := chunked(body, 4)
+	expect_error('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n' +
+		chunked_body[..chunked_body.len - 5], 7, message)
+	expect_error('HTTP/1.1 200 OK\r\nContent-Length: ${body.len}\r\n\r\n${body[..20]}', 7,
+		message)
 }
 
 fn test_closed_before_headers() {

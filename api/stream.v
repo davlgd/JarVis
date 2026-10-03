@@ -65,6 +65,12 @@ fn (mut sr StreamReader) read_stream(callback fn (string) !) ! {
 	mut parser := EventStreamParser{}
 	mut buffer := []u8{len: 4096}
 	for !parser.done {
+		// The server may keep the connection open once the body is complete:
+		// do not wait for another read.
+		if parser.body_done {
+			parser.finish(callback)!
+			return
+		}
 		n := sr.read(mut buffer)!
 		if n <= 0 {
 			parser.finish(callback)!
@@ -79,15 +85,17 @@ fn (mut sr StreamReader) read_stream(callback fn (string) !) ! {
 // (chunked transfer encoding) and lines may be split across reads.
 struct EventStreamParser {
 mut:
-	raw          []u8 // received bytes not decoded yet
-	body         []u8 // decoded body bytes not split into lines yet
-	headers_done bool
-	status       int
-	chunked      bool
-	chunk_left   int  // bytes left in the current chunk
-	chunk_crlf   bool // the CRLF ending the current chunk is still expected
-	body_done    bool // the last chunk was received
-	done         bool // `data: [DONE]` was received
+	raw            []u8 // received bytes not decoded yet
+	body           []u8 // decoded body bytes not split into lines yet
+	headers_done   bool
+	status         int
+	chunked        bool
+	content_length int = -1 // -1 when the body ends with the connection
+	received       int  // body bytes received, without the chunked framing
+	chunk_left     int  // bytes left in the current chunk
+	chunk_crlf     bool // the CRLF ending the current chunk is still expected
+	body_done      bool // the whole body was received (last chunk or Content-Length)
+	done           bool // `data: [DONE]` was received
 }
 
 fn (mut p EventStreamParser) feed(data []u8, callback fn (string) !) ! {
@@ -102,20 +110,31 @@ fn (mut p EventStreamParser) feed(data []u8, callback fn (string) !) ! {
 	}
 	p.decode_body()!
 	if p.status != 200 {
-		return error('API error (${p.status}): ${p.body.bytestr().trim_space()}')
+		// Report the error once its whole body is there, to include the diagnostic.
+		if p.body_done {
+			return p.http_error()
+		}
+		return
 	}
 	p.emit_lines(callback)!
 }
 
-// finish handles the end of the connection: what is left of the body is a last line.
+// finish handles the end of the response, at the end of the body or when the
+// connection is closed: what is left of the body is a last line.
 fn (mut p EventStreamParser) finish(callback fn (string) !) ! {
 	if !p.headers_done {
 		return error('Connection closed before the response headers were received')
 	}
 	if p.status != 200 {
-		return error('API error (${p.status}): ${p.body.bytestr().trim_space()}')
+		return p.http_error()
 	}
-	if !p.done && p.body.len > 0 {
+	if p.done {
+		return
+	}
+	if !p.body_done && (p.chunked || p.content_length >= 0) {
+		return error('Connection closed before the end of the response')
+	}
+	if p.body.len > 0 {
 		p.body << `\n`
 		p.emit_lines(callback)!
 	}
@@ -134,22 +153,44 @@ fn (mut p EventStreamParser) parse_headers(head string) ! {
 		if name == 'transfer-encoding' && value.contains('chunked') {
 			p.chunked = true
 		}
+		if name == 'content-length' {
+			p.content_length = strconv.atoi(value) or {
+				return error('Invalid Content-Length: "${value}"')
+			}
+		}
+	}
+	// Transfer-Encoding overrides Content-Length (RFC 9112, section 6.3)
+	if p.chunked {
+		p.content_length = -1
 	}
 	p.headers_done = true
+}
+
+fn (p &EventStreamParser) http_error() IError {
+	return error('API error (${p.status}): ${p.body.bytestr().trim_space()}')
 }
 
 // decode_body moves the received bytes to the body, removing the chunked transfer
 // encoding framing when the response uses it.
 fn (mut p EventStreamParser) decode_body() ! {
 	if !p.chunked {
-		p.body << p.raw
+		mut take := p.raw.len
+		if p.content_length >= 0 && p.received + take > p.content_length {
+			take = p.content_length - p.received
+		}
+		p.body << p.raw[..take]
+		p.received += take
 		p.raw.clear()
+		if p.content_length >= 0 && p.received >= p.content_length {
+			p.body_done = true
+		}
 		return
 	}
 	for !p.body_done {
 		if p.chunk_left > 0 {
 			take := if p.chunk_left < p.raw.len { p.chunk_left } else { p.raw.len }
 			p.body << p.raw[..take]
+			p.received += take
 			p.raw = p.raw[take..].clone()
 			p.chunk_left -= take
 			if p.chunk_left > 0 {

@@ -3,7 +3,6 @@
 module api
 
 import json2
-import log
 import net.http
 import strings
 
@@ -89,8 +88,6 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	}
 
 	request_data := json2.encode(request)
-	protocol := if c.config.api_tls { 'https' } else { 'http' }
-	log.debug('Connecting to ${protocol}://${c.config.api_host}:${c.config.api_port}')
 
 	mut headers := []string{}
 	headers << 'POST /v1/chat/completions HTTP/1.1'
@@ -110,17 +107,13 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	mut stream := new_stream_reader(c.config.api_host, c.config.api_port, c.config.api_tls)!
 	defer { stream.close() }
 
-	stream.send_request(request_str) or {
-		log.error('Failed to send request: ${err}')
-		return err
-	}
+	stream.send_request(request_str) or { return error('Failed to send request: ${err}') }
 
 	mut response_received := []bool{len: 1, init: false}
 
 	stream.read_stream(fn [response_received, on_chunk] (line_data string) ! {
 		chat_response := json2.decode[ChatResponse](line_data) or {
-			log.warn('Decoding error: ${err}')
-			return
+			return error('Invalid event from the API (${err}): ${line_data}')
 		}
 
 		if chat_response.choices.len > 0 {
@@ -134,10 +127,7 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 				}
 			}
 		}
-	}) or {
-		log.error('Stream read error: ${err}')
-		return err
-	}
+	}) or { return error('Stream read error: ${err}') }
 
 	if !response_received[0] {
 		return error('No response received from the API')
@@ -176,7 +166,6 @@ pub fn (c Client) list_models() ![]string {
 		req.header.add(http.CommonHeader.authorization, 'Bearer ${c.config.api_key}')
 	}
 
-	log.debug('Request: ${req}')
 	resp := req.do() or { return error('Models API error: ${err}') }
 
 	if resp.status_code != 200 {

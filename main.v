@@ -20,20 +20,7 @@ fn check_server_availability(client api.Client) ! {
 	}
 }
 
-fn interactive_mode() ! {
-	cfg := config.load_config() or {
-		log.error('Failed to load config: ${err}')
-		exit(1)
-	}
-	client := api.new_client(config_to_api(cfg)) or {
-		log.error('Failed to create API client: ${err}')
-		exit(1)
-	}
-	check_server_availability(client) or {
-		log.error('Failed to check server availability: ${err}')
-		exit(1)
-	}
-
+fn interactive_mode(client api.Client) ! {
 	println('JarVis, ready to help:')
 	input := readline.read_line('> ')!
 	if input.trim_space() == '' {
@@ -94,10 +81,12 @@ fn main() {
 			}
 
 			client := api.new_client(config_to_api(cfg))!
+			protocol := if cfg.api_tls { 'https' } else { 'http' }
+			log.debug('API server: ${protocol}://${cfg.api_host}:${cfg.api_port}, model: ${cfg.api_model}')
 			check_server_availability(client)!
 
 			if cmd.args.len == 0 {
-				interactive_mode()!
+				interactive_mode(client)!
 				return
 			}
 			request := cmd.args.join(' ')
@@ -123,9 +112,10 @@ fn main() {
 					client := api.new_client(config_to_api(cfg))!
 
 					new_model := cmd.args[0]
-					client.validate_model(new_model) or {
-						display_models_list(client.list_models()!)
-						return err
+					models := client.list_models()!
+					if new_model !in models {
+						display_models_list(models)
+						return error('The model "${new_model}" is not supported.')
 					}
 
 					cfg.api_model = new_model

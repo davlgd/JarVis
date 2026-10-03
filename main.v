@@ -64,10 +64,11 @@ fn interactive_mode(client api.Client) {
 
 struct Output {
 mut:
-	printed  bool
-	thinking bool      // `Thinking...` is shown on stderr
-	started  time.Time // when the model started thinking
-	shown    i64       // seconds shown in `Thinking...`
+	printed   bool      // some of the answer was printed
+	responded bool      // the model started answering or reasoning
+	thinking  bool      // `Thinking...` is shown on stderr
+	started   time.Time // when the model started thinking
+	shown     i64       // seconds shown in `Thinking...`
 }
 
 // show_thinking shows on stderr, when it is a terminal, how long the model has
@@ -100,8 +101,10 @@ fn (mut o Output) clear_thinking() {
 fn ask(client api.Client, prompt string) ! {
 	mut output := &Output{}
 	client.stream_completion_with_reasoning(prompt, fn [mut output] (_ string) {
+		output.responded = true
 		output.show_thinking()
 	}, fn [mut output] (chunk string) {
+		output.responded = true
 		output.clear_thinking()
 		print(chunk)
 		flush_stdout()
@@ -112,8 +115,8 @@ fn ask(client api.Client, prompt string) ! {
 		if output.printed {
 			println('')
 		}
-		// After a partial answer, the configuration was fine
-		if !output.printed && needs_config_hint(err) {
+		// Once the model has started, the configuration was fine
+		if !output.responded && needs_config_hint(err) {
 			return error('${err}. Check your configuration in ${config.file_path()}')
 		}
 		return err

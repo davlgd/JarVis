@@ -4,9 +4,10 @@ module api
 // be fed in pieces of any size: lines and events may be split across pieces.
 struct EventStreamParser {
 mut:
-	buffer []u8     // received bytes not split into lines yet
-	data   []string // data fields of the event being read
-	done   bool     // `data: [DONE]` was received
+	buffer  []u8     // received bytes not split into lines yet
+	data    []string // data fields of the event being read
+	skip_lf bool     // the last line ended with CR: a LF right after it belongs to it
+	done    bool     // `data: [DONE]` was received
 }
 
 // feed parses `bytes` and calls `on_event` with the data of each complete event.
@@ -16,13 +17,27 @@ fn (mut p EventStreamParser) feed(bytes []u8, on_event fn (string) !) ! {
 	}
 	p.buffer << bytes
 	for !p.done {
-		end := p.buffer.index(`\n`)
+		if p.skip_lf && p.buffer.len > 0 {
+			if p.buffer[0] == `\n` {
+				p.buffer = p.buffer[1..].clone()
+			}
+			p.skip_lf = false
+		}
+		// Lines end with CRLF, LF or CR
+		mut end := -1
+		for i, b in p.buffer {
+			if b == `\n` || b == `\r` {
+				end = i
+				break
+			}
+		}
 		if end < 0 {
 			return
 		}
 		line := p.buffer[..end].bytestr()
+		p.skip_lf = p.buffer[end] == `\r`
 		p.buffer = p.buffer[end + 1..].clone()
-		p.parse_line(line.trim_right('\r'), on_event)!
+		p.parse_line(line, on_event)!
 	}
 }
 
@@ -34,7 +49,7 @@ fn (mut p EventStreamParser) finish(on_event fn (string) !) ! {
 	if p.buffer.len > 0 {
 		line := p.buffer.bytestr()
 		p.buffer.clear()
-		p.parse_line(line.trim_right('\r'), on_event)!
+		p.parse_line(line, on_event)!
 	}
 	p.dispatch(on_event)!
 }

@@ -28,6 +28,25 @@ fn test_events_in_any_pieces() {
 	}
 }
 
+fn test_cr_crlf_and_lf_line_endings() {
+	for eol in ['\r', '\r\n', '\n'] {
+		body := 'data: {"a":1}${eol}${eol}data: {${eol}data: }${eol}${eol}data: [DONE]${eol}${eol}data: {"b":2}${eol}${eol}'
+		for step in [1, 2, 3, 4096] {
+			assert parse(body, step)! == ['{"a":1}', '{\n}']
+		}
+	}
+	// A CR followed by a LF in the next piece is one line ending, not two
+	mut events := &Events{}
+	on_event := fn [mut events] (data string) ! {
+		events.data << data
+	}
+	mut parser := EventStreamParser{}
+	parser.feed('data: a\r'.bytes(), on_event)!
+	parser.feed('\ndata: b\r'.bytes(), on_event)!
+	parser.feed('\n\r\n'.bytes(), on_event)!
+	assert events.data == ['a\nb']
+}
+
 fn test_multiline_event() {
 	body := 'data: {\ndata: "a": 1\ndata: }\n\ndata:{"b":2}\n\n'
 	for step in [1, 5, 4096] {

@@ -31,12 +31,9 @@ fn check_server_availability(client api.Client) {
 fn C._exit(code int)
 
 // quit_on_interrupt ends the interactive mode on Ctrl-C. It must not wait on any
-// output (stdout may be a full pipe), so it skips the stdio buffers: the answers
-// are flushed as they are printed.
+// output (stdout may be a full pipe, or a suspended terminal): it writes nothing
+// and skips the stdio buffers, the answers being flushed as they are printed.
 fn quit_on_interrupt(_ os.Signal) {
-	if os.is_atty(1) != 0 {
-		unsafe { C.write(1, c'\n', 1) }
-	}
 	C._exit(0)
 }
 

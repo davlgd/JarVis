@@ -103,7 +103,8 @@ fn ask(client api.Client, prompt string) ! {
 		if output.printed {
 			println('')
 		}
-		if needs_config_hint(err) {
+		// After a partial answer, the configuration was fine
+		if !output.printed && needs_config_hint(err) {
 			return error('${err}. Check your configuration in ${config.file_path()}')
 		}
 		return err

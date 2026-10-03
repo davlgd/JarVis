@@ -8,14 +8,22 @@ import os
 import readline
 import term
 
-fn check_server_availability(client api.Client) ! {
-	client.list_models() or {
+// check_server_availability exits with guidance when the API server cannot be
+// reached, or when it does not have the configured model.
+fn check_server_availability(client api.Client) {
+	models := client.list_models() or {
 		eprintln(term.bright_red('\nError: Cannot connect to API server'))
 		eprintln(term.gray('Please check:'))
 		eprintln(term.gray('  1. Server is running'))
 		eprintln(term.gray('  2. Server URL: ${client.config.api_host}:${client.config.api_port}'))
 		eprintln(term.gray('  3. Configuration in ${config.file_path()} is correct'))
 		log.debug(err.str())
+		exit(1)
+	}
+	if client.config.api_model !in models {
+		eprintln(term.bright_red('\nError: The model "${client.config.api_model}" is not available on ${client.config.api_host}:${client.config.api_port}'))
+		display_models_list(models)
+		eprintln(term.gray('Choose one with: jarvis switch <model>'))
 		exit(1)
 	}
 }
@@ -90,7 +98,7 @@ fn main() {
 		]
 		execute:     fn (cmd cli.Command) ! {
 			_, client := setup(cmd)!
-			check_server_availability(client)!
+			check_server_availability(client)
 
 			if cmd.args.len == 0 {
 				interactive_mode(client)!

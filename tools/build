@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Builds JarVis and installs it in $PREFIX/bin (default PREFIX: /usr/local).
+# Usage: [PREFIX=<dir>] tools/build [--no-install]
 set -euo pipefail
 
 ok() { echo -e "\033[32m✔\033[0m $1"; }
@@ -7,11 +9,40 @@ fail() {
 	exit 1
 }
 
+install=true
+case "${1:-}" in
+"") ;;
+--no-install) install=false ;;
+*)
+	echo "Usage: [PREFIX=<dir>] tools/build [--no-install]" >&2
+	exit 2
+	;;
+esac
+
+# A relative PREFIX is relative to where the script is run from
+prefix="${PREFIX:-/usr/local}"
+case "$prefix" in
+/*) ;;
+*) prefix="$(pwd)/$prefix" ;;
+esac
+
+cd "$(dirname "$0")/.."
+
 v . -o jarvis -prod || fail "JarVis build failed"
+if [ "$install" = false ]; then
+	ok "JarVis built successfully: $(pwd)/jarvis"
+	exit 0
+fi
 ok "JarVis built successfully"
 
-mv jarvis /usr/local/bin/jarvis || fail "JarVis installation failed"
-ok "JarVis installed successfully"
+target="$prefix/bin/jarvis"
+if [ -e "$target" ]; then
+	echo "Replacing $target ($("$target" --version 2>/dev/null || echo "unknown version"))"
+fi
+mkdir -p "$prefix/bin" && install -m 755 jarvis "$target" ||
+	fail "JarVis installation in $target failed (check the permissions, or set PREFIX)"
+rm -f jarvis
+ok "JarVis installed successfully: $target"
 
 echo ""
-echo -e "\033[34m➜\033[0m Launch JarVis and follow its instructions, config file is in \033[34m~/.config/jarvis/config.toml\033[0m"
+echo -e "\033[34m➜\033[0m Run \033[34mjarvis list\033[0m to see the models of your API server and \033[34mjarvis switch <model>\033[0m to choose one; the config file is \033[34m~/.config/jarvis/config.toml\033[0m"

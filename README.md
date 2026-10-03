@@ -10,6 +10,8 @@ You'll need [V](https://vlang.io/) to build and install JarVis:
 tools/build
 ```
 
+It installs `jarvis` in `/usr/local/bin`, replacing a previous version. Set `PREFIX` to install it elsewhere, e.g. `PREFIX=~/.local tools/build` installs `~/.local/bin/jarvis`, or use `tools/build --no-install` to only build `./jarvis`.
+
 ## Configure
 
 You can configure JarVis by editing the `~/.config/jarvis/config.toml` file, for example:

@@ -118,7 +118,9 @@ pub fn new_client(config Config) !Client {
 }
 
 // stream_completion sends `prompt` to the configured model and calls `on_chunk` with
-// each piece of the answer as soon as it is received.
+// each piece of the answer as soon as it is received. It fails when the answer is
+// not complete (connection lost, length limit, content filter): the pieces already
+// given to `on_chunk` are then only the start of the answer.
 pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	c.stream_completion_with_reasoning(prompt, fn (_ string) {}, on_chunk)!
 }
@@ -296,7 +298,8 @@ mut:
 	text strings.Builder = strings.new_builder(1024)
 }
 
-// complete sends `prompt` to the configured model and returns the whole answer.
+// complete sends `prompt` to the configured model and returns the whole answer. It
+// fails when the answer is not complete (see stream_completion).
 pub fn (c Client) complete(prompt string) !string {
 	mut answer := &Answer{}
 	c.stream_completion(prompt, fn [mut answer] (chunk string) {

@@ -28,13 +28,22 @@ fn check_server_availability(client api.Client) {
 	}
 }
 
+fn C._exit(code int)
+
+// quit_on_interrupt ends the interactive mode on Ctrl-C. It must not wait on any
+// output (stdout may be a full pipe), so it skips the stdio buffers: the answers
+// are flushed as they are printed.
+fn quit_on_interrupt(_ os.Signal) {
+	if os.is_atty(1) != 0 {
+		unsafe { C.write(1, c'\n', 1) }
+	}
+	C._exit(0)
+}
+
 // interactive_mode asks the questions typed by the user, one after the other,
 // until `exit`, `quit`, the end of input (Ctrl-D) or Ctrl-C.
 fn interactive_mode(client api.Client) {
-	os.signal_opt(.int, fn (_ os.Signal) {
-		println('')
-		exit(0)
-	}) or {}
+	os.signal_opt(.int, quit_on_interrupt) or {}
 	println('JarVis, ready to help (exit, quit or Ctrl-D to leave):')
 	for {
 		// vlib's readline spins on the first key press (#3): read plain lines

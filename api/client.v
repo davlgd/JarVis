@@ -95,8 +95,9 @@ pub fn (e ApiError) msg() string {
 	return '${e.operation} API error (${e.status}): ${e.body}'
 }
 
-// RequestError is a request that got no response from the API server (e.g. the
-// server cannot be reached).
+// RequestError is a request that failed without a complete response from the API
+// server: the server cannot be reached, or the connection failed or timed out,
+// possibly after part of a streamed answer.
 pub struct RequestError {
 	Error
 pub:

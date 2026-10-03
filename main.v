@@ -5,7 +5,6 @@ import cli
 import config
 import log
 import os
-import readline
 import term
 
 // check_server_availability exits with guidance when the API server cannot be
@@ -30,7 +29,8 @@ fn check_server_availability(client api.Client) {
 
 fn interactive_mode(client api.Client) ! {
 	println('JarVis, ready to help:')
-	input := readline.read_line('> ')!
+	// vlib's readline spins on the first key press (#3): read plain lines
+	input := os.input_opt('> ') or { return }
 	if input.trim_space() == '' {
 		return
 	}

@@ -6,6 +6,7 @@ import config
 import log
 import os
 import term
+import time
 
 // check_server_availability exits with guidance when the API server cannot be
 // reached, or when it does not have the configured model.
@@ -54,16 +55,50 @@ fn interactive_mode(client api.Client) {
 
 struct Output {
 mut:
-	printed bool
+	printed  bool
+	thinking bool      // `Thinking...` is shown on stderr
+	started  time.Time // when the model started thinking
+	shown    i64       // seconds shown in `Thinking...`
+}
+
+// show_thinking shows on stderr, when it is a terminal, how long the model has
+// been thinking (reasoning models think before answering).
+fn (mut o Output) show_thinking() {
+	if o.printed || os.is_atty(2) == 0 {
+		return
+	}
+	if !o.thinking {
+		o.thinking = true
+		o.started = time.now()
+		o.shown = -1
+	}
+	seconds := i64(time.since(o.started).seconds())
+	if seconds != o.shown {
+		o.shown = seconds
+		eprint('\r${term.dim('Thinking... ${seconds}s')}')
+		flush_stderr()
+	}
+}
+
+fn (mut o Output) clear_thinking() {
+	if o.thinking {
+		o.thinking = false
+		eprint('\r\x1b[2K')
+		flush_stderr()
+	}
 }
 
 fn ask(client api.Client, prompt string) ! {
 	mut output := &Output{}
-	client.stream_completion(prompt, fn [mut output] (chunk string) {
+	client.stream_completion_with_reasoning(prompt, fn [mut output] (_ string) {
+		output.show_thinking()
+	}, fn [mut output] (chunk string) {
+		output.clear_thinking()
 		print(chunk)
 		flush_stdout()
 		output.printed = true
 	}) or {
+		output.clear_thinking()
 		// The error starts on its own line after a partial answer
 		if output.printed {
 			println('')

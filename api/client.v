@@ -107,8 +107,12 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	// net.http handles the HTTP framing (chunked encoding, Content-Length, end of
 	// the connection) and gives the decoded body as it arrives.
 	req.on_progress_body = fn [mut state, on_event] (_ &http.Request, chunk []u8, _ u64, _ u64, status int) ! {
-		// An error body is read from the response once complete
-		if status != 200 {
+		// An error body is read from the response once complete. net.http takes the
+		// status from the first socket read only: when that read ends inside the
+		// status code, `status` is a truncated number (e.g. `2` for `200`) that
+		// cannot be trusted. The body is then parsed anyway: an error body holds no
+		// events, and the status of the whole response is checked below.
+		if status >= 100 && status != 200 {
 			return
 		}
 		state.parser.feed(chunk, on_event)!

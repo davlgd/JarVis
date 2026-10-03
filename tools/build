@@ -1,10 +1,17 @@
-#! /bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-v . -o jarvis -prod
-echo -e "\033[32m✔\033[0m JarVis built successfully"
+ok() { echo -e "\033[32m✔\033[0m $1"; }
+fail() {
+	echo -e "\033[31m✘\033[0m $1" >&2
+	exit 1
+}
 
-mv jarvis /usr/local/bin/jarvis
-echo -e "\033[32m✔\033[0m JarVis installed successfully"
+v . -o jarvis -prod || fail "JarVis build failed"
+ok "JarVis built successfully"
+
+mv jarvis /usr/local/bin/jarvis || fail "JarVis installation failed"
+ok "JarVis installed successfully"
 
 echo ""
 echo -e "\033[34m➜\033[0m Launch JarVis and follow its instructions, config file is in \033[34m~/.config/jarvis/config.toml\033[0m"

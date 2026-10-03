@@ -58,7 +58,9 @@ struct CompletionRequest {
 }
 
 struct ChatDelta {
-	content string
+	content           string
+	reasoning         string // Ollama
+	reasoning_content string // other OpenAI compatible servers (vLLM, DeepSeek...)
 }
 
 struct ChatChoice {
@@ -117,6 +119,13 @@ pub fn new_client(config Config) !Client {
 // stream_completion sends `prompt` to the configured model and calls `on_chunk` with
 // each piece of the answer as soon as it is received.
 pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
+	c.stream_completion_with_reasoning(prompt, fn (_ string) {}, on_chunk)!
+}
+
+// stream_completion_with_reasoning is stream_completion for reasoning models: it
+// also calls `on_reasoning` with each piece of the reasoning the model streams
+// before its answer, when the server sends it.
+pub fn (c Client) stream_completion_with_reasoning(prompt string, on_reasoning fn (string), on_chunk fn (string)) ! {
 	request := CompletionRequest{
 		model:       c.config.api_model
 		messages:    [
@@ -146,7 +155,7 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	req.stop_copying_limit = max_error_body
 
 	mut state := &StreamState{}
-	on_event := fn [mut state, on_chunk] (data string) ! {
+	on_event := fn [mut state, on_reasoning, on_chunk] (data string) ! {
 		chat_response := json2.decode[ChatResponse](data) or {
 			return error('Invalid event from the API (${err}): ${data}')
 		}
@@ -158,7 +167,16 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 			if chat_response.choices[0].finish_reason.len > 0 {
 				state.finish_reason = chat_response.choices[0].finish_reason
 			}
-			content := chat_response.choices[0].delta.content
+			delta := chat_response.choices[0].delta
+			reasoning := if delta.reasoning.len > 0 {
+				delta.reasoning
+			} else {
+				delta.reasoning_content
+			}
+			if reasoning.len > 0 {
+				on_reasoning(reasoning)
+			}
+			content := delta.content
 			if content.len > 0 {
 				on_chunk(content)
 				state.received = true

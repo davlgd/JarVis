@@ -73,6 +73,8 @@ fn main() {
 }
 ```
 
+With a reasoning model, `stream_completion_with_reasoning(prompt, on_reasoning, on_chunk)` also gives the reasoning the model streams before its answer, when the server sends it.
+
 The `jarvis.config` module reads and writes the JarVis configuration file (`config.load_config()`, `config.save_config()`), if you want to share it with the CLI.
 
 ## Licence

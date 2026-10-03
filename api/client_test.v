@@ -210,3 +210,34 @@ fn test_unreachable_server_is_a_request_error() {
 		assert err.msg().starts_with('Chat completion request failed: ')
 	}
 }
+
+struct Received {
+mut:
+	reasoning []string
+	content   []string
+}
+
+fn test_reasoning_is_given_to_its_callback() {
+	body := 'data: {"choices":[{"delta":{"content":"","reasoning":"think "}}]}\n\n' +
+		'data: {"choices":[{"delta":{"content":"","reasoning_content":"more"}}]}\n\n' +
+		'data: {"choices":[{"delta":{"content":"hello"}}]}\n\ndata: [DONE]\n\n'
+	mut listener := net.listen_tcp(.ip, '127.0.0.1:0')!
+	defer {
+		listener.close() or {}
+	}
+	port := listener.addr()!.port()!
+	spawn serve(mut listener, sse_response(body))
+	client := new_client(Config{
+		api_host:  '127.0.0.1'
+		api_port:  port.str()
+		api_model: 'test'
+	})!
+	mut received := &Received{}
+	client.stream_completion_with_reasoning('hi', fn [mut received] (reasoning string) {
+		received.reasoning << reasoning
+	}, fn [mut received] (chunk string) {
+		received.content << chunk
+	})!
+	assert received.reasoning == ['think ', 'more']
+	assert received.content == ['hello']
+}

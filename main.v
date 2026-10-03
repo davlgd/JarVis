@@ -59,6 +59,20 @@ fn config_to_api(cfg config.Settings) api.Config {
 	}
 }
 
+// setup enables the verbose mode when asked, then loads the configuration and
+// creates the API client.
+fn setup(cmd cli.Command) !(config.Settings, api.Client) {
+	if cmd.flags.get_bool('verbose') or { false } {
+		log.set_level(.debug)
+		log.debug('Verbose mode enabled')
+	}
+	cfg := config.load_config()!
+	client := api.new_client(config_to_api(cfg))!
+	protocol := if cfg.api_tls { 'https' } else { 'http' }
+	log.debug('API server: ${protocol}://${cfg.api_host}:${cfg.api_port}, model: ${cfg.api_model}')
+	return cfg, client
+}
+
 fn main() {
 	mut app := cli.Command{
 		name:        'jarvis'
@@ -71,20 +85,11 @@ fn main() {
 				abbrev:      'v'
 				description: 'Enable verbose mode'
 				flag:        .bool
+				global:      true
 			},
 		]
 		execute:     fn (cmd cli.Command) ! {
-			mut cfg := config.load_config()!
-
-			verbose := cmd.flags.get_bool('verbose') or { false }
-			if verbose {
-				log.set_level(.debug)
-				log.debug('Verbose mode enabled')
-			}
-
-			client := api.new_client(config_to_api(cfg))!
-			protocol := if cfg.api_tls { 'https' } else { 'http' }
-			log.debug('API server: ${protocol}://${cfg.api_host}:${cfg.api_port}, model: ${cfg.api_model}')
+			_, client := setup(cmd)!
 			check_server_availability(client)!
 
 			if cmd.args.len == 0 {
@@ -99,8 +104,7 @@ fn main() {
 				name:        'list'
 				description: 'List available models'
 				execute:     fn (cmd cli.Command) ! {
-					cfg := config.load_config()!
-					client := api.new_client(config_to_api(cfg))!
+					_, client := setup(cmd)!
 					models := client.list_models()!
 					display_models_list(models)
 				}
@@ -110,8 +114,7 @@ fn main() {
 				description:   'Switch to a different model'
 				required_args: 1
 				execute:       fn (cmd cli.Command) ! {
-					mut cfg := config.load_config()!
-					client := api.new_client(config_to_api(cfg))!
+					mut cfg, client := setup(cmd)!
 
 					new_model := cmd.args[0]
 					models := client.list_models()!

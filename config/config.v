@@ -16,6 +16,9 @@ pub mut:
 	api_key   string
 	api_model string
 	api_tls   bool
+	// optional, see api.Config
+	api_ca_file  string
+	api_insecure bool
 }
 
 const config_dir = os.join_path(os.home_dir(), '.config', 'jarvis')

@@ -22,6 +22,8 @@ api_model = "qwen2.5-coder"
 api_tls = false
 ```
 
+With `api_tls = true`, the server certificate is checked against the system bundle of trusted CA certificates. Set `api_ca_file` to the path of another PEM bundle, or `api_insecure = true` to skip the check (e.g. for a server with a self-signed certificate).
+
 ## Usage
 
 ```bash
@@ -50,7 +52,7 @@ fn main() {
 		api_host:  'localhost'
 		api_port:  '11434'
 		api_model: 'qwen2.5-coder'
-		// optional: api_key, api_tls, system_prompt, temperature
+		// optional: api_key, api_tls, api_ca_file, api_insecure, system_prompt, temperature
 	})!
 
 	// List the models available on the server, check one exists

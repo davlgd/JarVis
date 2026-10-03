@@ -100,3 +100,21 @@ fn test_status_line_split_with_connection_left_open() {
 		assert time.since(started) < 3 * time.second
 	}
 }
+
+fn test_stream_ended_mid_answer() {
+	headers := 'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n'
+	content := 'data: {"choices":[{"delta":{"content":"partial"}}]}'
+	for body in ['${content}\n\n', content] {
+		complete_from([headers, body]) or {
+			assert err.msg() == 'The stream ended before the answer was complete'
+			continue
+		}
+		assert false, 'no error for body "${body}"'
+	}
+}
+
+fn test_finish_reason_without_done() {
+	headers := 'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n'
+	body := 'data: {"choices":[{"delta":{"content":"hello"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
+	assert complete_from([headers, body])! == 'hello'
+}

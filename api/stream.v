@@ -1,7 +1,9 @@
 module api
 
 // EventStreamParser splits a server-sent events body into events. The body can
-// be fed in pieces of any size: lines and events may be split across pieces.
+// be fed in pieces of any size: lines and events may be split across pieces. An
+// event is only dispatched at the blank line that ends it: at the end of the
+// body, an unfinished event is discarded, as the SSE specification says.
 struct EventStreamParser {
 mut:
 	buffer  []u8     // received bytes not split into lines yet
@@ -52,19 +54,6 @@ fn (mut p EventStreamParser) feed(bytes []u8, on_event fn (string) !) ! {
 		p.buffer = p.buffer[end + 1..].clone()
 		p.parse_line(line, on_event)!
 	}
-}
-
-// finish handles the end of the body: what is left is the last line and event.
-fn (mut p EventStreamParser) finish(on_event fn (string) !) ! {
-	if p.done {
-		return
-	}
-	if p.buffer.len > 0 {
-		line := p.buffer.bytestr()
-		p.buffer.clear()
-		p.parse_line(line, on_event)!
-	}
-	p.dispatch(on_event)!
 }
 
 fn (mut p EventStreamParser) parse_line(line string, on_event fn (string) !) ! {

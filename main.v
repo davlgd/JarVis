@@ -49,11 +49,13 @@ fn print_chunk(chunk string) {
 
 fn config_to_api(cfg config.Settings) api.Config {
 	return api.Config{
-		api_host:  cfg.api_host
-		api_port:  cfg.api_port
-		api_key:   cfg.api_key
-		api_model: cfg.api_model
-		api_tls:   cfg.api_tls
+		api_host:     cfg.api_host
+		api_port:     cfg.api_port
+		api_key:      cfg.api_key
+		api_model:    cfg.api_model
+		api_tls:      cfg.api_tls
+		api_ca_file:  cfg.api_ca_file
+		api_insecure: cfg.api_insecure
 	}
 }
 

@@ -4,6 +4,7 @@ module api
 
 import json2
 import net.http
+import os
 import strings
 
 // default_system_prompt is the system prompt used when Config.system_prompt is not set.
@@ -16,14 +17,28 @@ pub const default_temperature = 1.0
 // Config describes the API server to talk to and how to query it.
 pub struct Config {
 pub:
-	api_host      string
-	api_port      string
-	api_key       string
-	api_model     string
-	api_tls       bool
+	api_host  string
+	api_port  string
+	api_key   string
+	api_model string
+	api_tls   bool
+	// With api_tls, the server certificate is checked against api_ca_file, a PEM
+	// bundle of trusted CA certificates (default: the system bundle), unless
+	// api_insecure is set (e.g. for a server with a self-signed certificate).
+	api_ca_file   string
+	api_insecure  bool
 	system_prompt string = default_system_prompt
 	temperature   f64    = default_temperature
 }
+
+// System bundles of trusted CA certificates, by platform
+const ca_bundles = [
+	'/etc/ssl/cert.pem', // macOS, Alpine, Arch
+	'/etc/ssl/certs/ca-certificates.crt', // Debian, Ubuntu
+	'/etc/pki/tls/certs/ca-bundle.crt', // Fedora, RHEL
+	'/etc/ssl/ca-bundle.pem', // openSUSE
+	'/usr/local/share/certs/ca-root-nss.crt', // FreeBSD
+]
 
 pub struct Client {
 pub:
@@ -90,7 +105,7 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 		stream:      true
 	}
 
-	mut req := c.new_request(.post, '/v1/chat/completions', json2.encode(request))
+	mut req := c.new_request(.post, '/v1/chat/completions', json2.encode(request))!
 	req.add_header(.content_type, 'application/json')
 	req.add_header(.accept, 'text/event-stream')
 	// A retry would replay an answer already partly given to `on_chunk`
@@ -106,6 +121,9 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 			return error('Chat completion API error: ${chat_response.error.message}')
 		}
 		if chat_response.choices.len > 0 {
+			if chat_response.choices[0].finish_reason.len > 0 {
+				state.finished = true
+			}
 			content := chat_response.choices[0].delta.content
 			if content.len > 0 {
 				on_chunk(content)
@@ -152,7 +170,10 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	if resp.status_code != 200 {
 		return error('Chat completion API error (${resp.status_code}): ${resp.body.trim_space()}')
 	}
-	state.parser.finish(on_event)!
+	// Without `[DONE]` nor a finish reason, the connection ended mid-answer
+	if !state.parser.done && !state.finished {
+		return error('The stream ended before the answer was complete')
+	}
 
 	if !state.received {
 		return error('No response received from the API')
@@ -167,6 +188,7 @@ mut:
 	head     []u8   // start of the raw response, until the status line is complete
 	status   int    // status code read from the status line, 0 while unknown
 	failure  string // error met while handling the events
+	finished bool   // a choice gave its finish reason
 	received bool
 }
 
@@ -216,7 +238,7 @@ struct Model {
 	id string
 }
 
-fn (c Client) new_request(method http.Method, path string, data string) http.Request {
+fn (c Client) new_request(method http.Method, path string, data string) !http.Request {
 	protocol := if c.config.api_tls { 'https' } else { 'http' }
 	mut req := http.new_request(method, '${protocol}://${c.config.api_host}:${c.config.api_port}${path}',
 		data)
@@ -226,12 +248,38 @@ fn (c Client) new_request(method http.Method, path string, data string) http.Req
 	// A redirect would forward the API key and the prompt to wherever it points:
 	// it is reported as an error (non-200 status) instead.
 	req.allow_redirect = false
+	// The API key must only reach a server whose certificate is valid
+	if c.config.api_tls && !c.config.api_insecure {
+		req.validate = true
+		$if !windows {
+			// Windows checks certificates against its own store
+			req.verify = if c.config.api_ca_file != '' {
+				c.config.api_ca_file
+			} else {
+				find_ca_bundle()!
+			}
+		}
+	}
 	return req
+}
+
+// find_ca_bundle returns the path of the system bundle of trusted CA certificates.
+fn find_ca_bundle() !string {
+	env_file := os.getenv('SSL_CERT_FILE')
+	if env_file != '' {
+		return env_file
+	}
+	for path in ca_bundles {
+		if os.is_file(path) {
+			return path
+		}
+	}
+	return error('No CA bundle found to check the server certificate: set api_ca_file (or SSL_CERT_FILE)')
 }
 
 // list_models returns the ids of the models available on the API server.
 pub fn (c Client) list_models() ![]string {
-	req := c.new_request(.get, '/v1/models', '')
+	req := c.new_request(.get, '/v1/models', '')!
 	resp := req.do() or { return error('Models API error: ${err}') }
 
 	if resp.status_code != 200 {

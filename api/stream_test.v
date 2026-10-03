@@ -5,7 +5,7 @@ mut:
 	data []string
 }
 
-// parse feeds `body` to a parser in pieces of `step` bytes, then ends the body.
+// parse feeds `body` to a parser in pieces of `step` bytes.
 fn parse(body string, step int) ![]string {
 	mut events := &Events{}
 	on_event := fn [mut events] (data string) ! {
@@ -17,7 +17,6 @@ fn parse(body string, step int) ![]string {
 		end := if i + step < bytes.len { i + step } else { bytes.len }
 		parser.feed(bytes[i..end], on_event)!
 	}
-	parser.finish(on_event)!
 	return events.data
 }
 
@@ -76,9 +75,10 @@ fn test_stops_on_done() {
 	assert parse(body, 1)! == ['{"a":1}']
 }
 
-fn test_last_event_without_blank_line() {
-	assert parse('data: {"a":1}', 4)! == ['{"a":1}']
-	assert parse('data: {"a":1}\n', 4)! == ['{"a":1}']
+fn test_unfinished_event_is_not_dispatched() {
+	assert parse('data: {"a":1}', 4)! == []string{}
+	assert parse('data: {"a":1}\n', 4)! == []string{}
+	assert parse('data: {"a":1}\n\ndata: {"b":2}\n', 4)! == ['{"a":1}']
 }
 
 fn test_callback_error_is_returned() {

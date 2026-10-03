@@ -108,6 +108,9 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 	mut req := c.new_request(.post, '/v1/chat/completions', json2.encode(request))!
 	req.add_header(.content_type, 'application/json')
 	req.add_header(.accept, 'text/event-stream')
+	// The body is parsed as it arrives, before net.http could decompress it.
+	// Without this header, any content coding is acceptable (RFC 9110, 12.5.3).
+	req.add_header(.accept_encoding, 'identity')
 	// A retry would replay an answer already partly given to `on_chunk`
 	req.max_retries = 1
 	// The events are handled as they arrive: only keep the start of the body in

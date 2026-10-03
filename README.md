@@ -22,7 +22,7 @@ api_model = "qwen2.5-coder"
 api_tls = false
 ```
 
-With `api_tls = true`, the server certificate is checked against the system bundle of trusted CA certificates. Set `api_ca_file` to the path of another PEM bundle, or `api_insecure = true` to skip the check (e.g. for a server with a self-signed certificate).
+With `api_tls = true`, the server certificate is checked against the system bundle of trusted CA certificates (on Windows, the Windows certificate store). Set `api_ca_file` to the path of another PEM bundle (not supported with the Windows store), or `api_insecure = true` to skip the check (e.g. for a server with a self-signed certificate).
 
 ## Usage
 

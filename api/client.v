@@ -251,8 +251,13 @@ fn (c Client) new_request(method http.Method, path string, data string) !http.Re
 	// The API key must only reach a server whose certificate is valid
 	if c.config.api_tls && !c.config.api_insecure {
 		req.validate = true
-		$if !windows {
-			// Windows checks certificates against its own store
+		$if windows && !no_vschannel ? {
+			// net.http uses SChannel, which checks certificates against the Windows
+			// certificate store and has no use for a PEM bundle
+			if c.config.api_ca_file != '' {
+				return error('api_ca_file is not supported with the Windows certificate store (SChannel): add the CA certificate to the store instead')
+			}
+		} $else {
 			req.verify = if c.config.api_ca_file != '' {
 				c.config.api_ca_file
 			} else {

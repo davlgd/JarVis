@@ -174,10 +174,11 @@ fn setup(cmd cli.Command) !(config.Settings, api.Client) {
 	return cfg, client
 }
 
-// first_word returns the first argument that is not a flag. All the flags are
-// booleans, and vlib's cli also accepts a boolean flag followed by its value
-// (`-v true`, `--help false`): that value is skipped too.
-fn first_word(args []string) ?string {
+// split_arguments splits the arguments into the leading flags and the rest, which
+// starts with the first word. All the flags are booleans, and vlib's cli also
+// accepts a boolean flag followed by its value (`-v true`, `--help false`): that
+// value goes with the flags.
+fn split_arguments(args []string) ([]string, []string) {
 	mut i := 0
 	for i < args.len && args[i].starts_with('-') {
 		if !args[i].contains('=') && i + 1 < args.len && args[i + 1] in ['true', 'false'] {
@@ -185,10 +186,29 @@ fn first_word(args []string) ?string {
 		}
 		i++
 	}
-	if i >= args.len {
-		return none
+	return args[..i], args[i..]
+}
+
+// shows_help reports whether the leading flags ask for the help or the manpage,
+// which vlib's cli shows before looking for a command.
+fn shows_help(flags []string) bool {
+	for i, flag in flags {
+		name := flag.all_before('=')
+		if name !in ['-h', '--help', '--man'] {
+			continue
+		}
+		value := if flag.contains('=') {
+			flag.all_after('=')
+		} else if i + 1 < flags.len && flags[i + 1] in ['true', 'false'] {
+			flags[i + 1]
+		} else {
+			'true'
+		}
+		if value != 'false' {
+			return true
+		}
 	}
-	return args[i]
+	return false
 }
 
 // reject_flag_commands exits with guidance when the first word is `help`,
@@ -275,13 +295,16 @@ fn main() {
 		]
 	}
 
-	word := first_word(os.args[1..]) or { '' }
-	reject_flag_commands(word)
-	// Only the first word may select a command. vlib's cli looks for a command in
-	// every argument: without this, `jarvis tell me how to switch <model>` would
-	// switch the model instead of asking the question.
-	if word != '' && word !in app.commands.map(it.name) {
-		app.commands = []
+	flags, rest := split_arguments(os.args[1..])
+	if rest.len > 0 {
+		reject_flag_commands(rest[0])
+		// Only the first word may select a command. vlib's cli looks for a command
+		// in every argument: without this, `jarvis tell me how to switch <model>`
+		// would switch the model instead of asking the question. The help, shown
+		// before any command is run, keeps listing them.
+		if rest[0] !in app.commands.map(it.name) && !shows_help(flags) {
+			app.commands = []
+		}
 	}
 	app.setup()
 	app.parse(os.args)

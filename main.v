@@ -8,18 +8,27 @@ import os
 import term
 import time
 
+// list_models returns the models of the API server. When the server cannot be
+// reached, it exits with a checklist; the raw error is only shown in verbose mode.
+fn list_models(client api.Client) ![]string {
+	return client.list_models() or {
+		if err is api.RequestError {
+			eprintln(term.bright_red('\nError: Cannot connect to API server'))
+			eprintln(term.gray('Please check:'))
+			eprintln(term.gray('  1. Server is running'))
+			eprintln(term.gray('  2. Server URL: ${client.config.api_host}:${client.config.api_port}'))
+			eprintln(term.gray('  3. Configuration in ${config.file_path()} is correct'))
+			log.debug(err.msg())
+			exit(1)
+		}
+		return err
+	}
+}
+
 // check_server_availability exits with guidance when the API server cannot be
 // reached, or when it does not have the configured model.
-fn check_server_availability(client api.Client) {
-	models := client.list_models() or {
-		eprintln(term.bright_red('\nError: Cannot connect to API server'))
-		eprintln(term.gray('Please check:'))
-		eprintln(term.gray('  1. Server is running'))
-		eprintln(term.gray('  2. Server URL: ${client.config.api_host}:${client.config.api_port}'))
-		eprintln(term.gray('  3. Configuration in ${config.file_path()} is correct'))
-		log.debug(err.str())
-		exit(1)
-	}
+fn check_server_availability(client api.Client) ! {
+	models := list_models(client)!
 	if client.config.api_model !in models {
 		eprintln(term.bright_red('\nError: The model "${client.config.api_model}" is not available on ${client.config.api_host}:${client.config.api_port}'))
 		display_models_list(models)
@@ -219,7 +228,7 @@ fn main() {
 		]
 		execute:     fn (cmd cli.Command) ! {
 			_, client := setup(cmd)!
-			check_server_availability(client)
+			check_server_availability(client)!
 
 			if cmd.args.len == 0 {
 				interactive_mode(client)
@@ -234,8 +243,7 @@ fn main() {
 				description: 'List available models'
 				execute:     fn (cmd cli.Command) ! {
 					_, client := setup(cmd)!
-					models := client.list_models()!
-					display_models_list(models)
+					display_models_list(list_models(client)!)
 				}
 			},
 			cli.Command{
@@ -247,7 +255,7 @@ fn main() {
 					mut cfg, client := setup(cmd)!
 
 					new_model := cmd.args[0]
-					models := client.list_models()!
+					models := list_models(client)!
 					if new_model !in models {
 						display_models_list(models)
 						return error('The model "${new_model}" is not supported.')

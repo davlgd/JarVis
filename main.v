@@ -164,17 +164,25 @@ fn setup(cmd cli.Command) !(config.Settings, api.Client) {
 // model as a question, or let a later word run a command (vlib's cli looks for a
 // command in every argument, so `jarvis help switch <model>` would switch).
 fn reject_flag_commands(args []string) {
-	words := args.filter(!it.starts_with('-'))
-	if words.len == 0 {
+	mut i := 0
+	for i < args.len && args[i].starts_with('-') {
+		// vlib's cli also accepts a boolean flag followed by its value: `-v true`
+		if args[i] in ['-v', '--verbose'] && i + 1 < args.len && args[i + 1] in ['true', 'false'] {
+			i++
+		}
+		i++
+	}
+	if i >= args.len {
 		return
 	}
-	flag := match words[0] {
+	word := args[i]
+	flag := match word {
 		'help' { '--help' }
 		'version' { '--version' }
 		'man' { '--man' }
 		else { return }
 	}
-	eprintln('`${words[0]}` is not a command: use `jarvis ${flag}`')
+	eprintln('`${word}` is not a command: use `jarvis ${flag}`')
 	exit(1)
 }
 

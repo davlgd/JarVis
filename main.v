@@ -189,28 +189,6 @@ fn split_arguments(args []string) ([]string, []string) {
 	return args[..i], args[i..]
 }
 
-// shows_help reports whether the leading flags ask for the help or the manpage,
-// which vlib's cli shows before looking for a command.
-fn shows_help(flags []string) bool {
-	for i, flag in flags {
-		name := flag.all_before('=')
-		if name !in ['-h', '--help', '--man'] {
-			continue
-		}
-		value := if flag.contains('=') {
-			flag.all_after('=')
-		} else if i + 1 < flags.len && flags[i + 1] in ['true', 'false'] {
-			flags[i + 1]
-		} else {
-			'true'
-		}
-		if value != 'false' {
-			return true
-		}
-	}
-	return false
-}
-
 // reject_flag_commands exits with guidance when the first word is `help`,
 // `version` or `man`, which are flags only: as commands, they would be sent to the
 // model as a question.
@@ -295,14 +273,15 @@ fn main() {
 		]
 	}
 
-	flags, rest := split_arguments(os.args[1..])
+	_, rest := split_arguments(os.args[1..])
 	if rest.len > 0 {
 		reject_flag_commands(rest[0])
 		// Only the first word may select a command. vlib's cli looks for a command
 		// in every argument: without this, `jarvis tell me how to switch <model>`
-		// would switch the model instead of asking the question. The help, shown
-		// before any command is run, keeps listing them.
-		if rest[0] !in app.commands.map(it.name) && !shows_help(flags) {
+		// would switch the model instead of asking the question. (Then
+		// `jarvis --help <words>` shows the help without the commands: guessing
+		// whether vlib will show the help would risk letting a command run.)
+		if rest[0] !in app.commands.map(it.name) {
 			app.commands = []
 		}
 	}

@@ -29,6 +29,11 @@ pub:
 	api_insecure  bool
 	system_prompt string = default_system_prompt
 	temperature   f64    = default_temperature
+	// Optional, sent only when set: how much a reasoning model may reason (e.g.
+	// `none`, `low`, `medium`, `high`, as the server supports), and the maximum
+	// number of tokens of the answer.
+	reasoning_effort string
+	max_tokens       int
 }
 
 // System bundles of trusted CA certificates, by platform
@@ -51,10 +56,12 @@ struct Message {
 }
 
 struct CompletionRequest {
-	model       string
-	messages    []Message
-	temperature f64
-	stream      bool
+	model            string
+	messages         []Message
+	temperature      f64
+	stream           bool
+	reasoning_effort string @[omitempty]
+	max_tokens       int    @[omitempty]
 }
 
 struct ChatDelta {
@@ -110,6 +117,26 @@ pub fn (e RequestError) msg() string {
 	return '${e.operation} request failed: ${e.reason}'
 }
 
+// FinishError is an answer that the server stopped before the model finished it:
+// at the length limit, or by the content filter.
+pub struct FinishError {
+	Error
+pub:
+	reason   string // `length` or `content_filter`
+	received bool   // part of the answer was given before
+}
+
+// msg says why the answer was stopped, and whether part of it was given.
+pub fn (e FinishError) msg() string {
+	if e.reason == 'length' {
+		if !e.received {
+			return 'The model reached its length limit before answering (finish_reason: length)'
+		}
+		return 'The answer was cut by the length limit (finish_reason: length)'
+	}
+	return 'The answer was blocked by the content filter (finish_reason: ${e.reason})'
+}
+
 // new_client returns a client for the API described by `config`.
 pub fn new_client(config Config) !Client {
 	return Client{
@@ -130,8 +157,8 @@ pub fn (c Client) stream_completion(prompt string, on_chunk fn (string)) ! {
 // before its answer, when the server sends it.
 pub fn (c Client) stream_completion_with_reasoning(prompt string, on_reasoning fn (string), on_chunk fn (string)) ! {
 	request := CompletionRequest{
-		model:       c.config.api_model
-		messages:    [
+		model:            c.config.api_model
+		messages:         [
 			Message{
 				role:    'system'
 				content: c.config.system_prompt
@@ -141,8 +168,10 @@ pub fn (c Client) stream_completion_with_reasoning(prompt string, on_reasoning f
 				content: prompt
 			},
 		]
-		temperature: c.config.temperature
-		stream:      true
+		temperature:      c.config.temperature
+		stream:           true
+		reasoning_effort: c.config.reasoning_effort
+		max_tokens:       c.config.max_tokens
 	}
 
 	mut req := c.new_request(.post, '/v1/chat/completions', json2.encode(request))!
@@ -237,17 +266,11 @@ pub fn (c Client) stream_completion_with_reasoning(prompt string, on_reasoning f
 		return error('The stream ended before the answer was complete')
 	}
 	// The answer was stopped by the server rather than finished by the model
-	match state.finish_reason {
-		'length' {
-			if !state.received {
-				return error('The model reached its length limit before answering (finish_reason: length)')
-			}
-			return error('The answer was cut by the length limit (finish_reason: length)')
+	if state.finish_reason in ['length', 'content_filter'] {
+		return FinishError{
+			reason:   state.finish_reason
+			received: state.received
 		}
-		'content_filter' {
-			return error('The answer was blocked by the content filter (finish_reason: content_filter)')
-		}
-		else {}
 	}
 
 	if !state.received {

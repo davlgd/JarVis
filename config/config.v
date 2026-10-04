@@ -17,8 +17,10 @@ pub mut:
 	api_model string
 	api_tls   bool
 	// optional, see api.Config
-	api_ca_file  string
-	api_insecure bool
+	api_ca_file      string
+	api_insecure     bool
+	reasoning_effort string
+	max_tokens       int
 }
 
 const config_dir = os.join_path(os.home_dir(), '.config', 'jarvis')

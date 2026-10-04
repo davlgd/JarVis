@@ -26,6 +26,13 @@ api_tls = false
 
 `api_model` must be one of the models listed by the server (`jarvis list`); choose it with `jarvis switch <model>`.
 
+Reasoning models think before answering, and may reach their length limit before the answer. Optionally, set `reasoning_effort` (`none`, `low`, `medium` or `high`, as your server supports) and `max_tokens`, the maximum length of the answer; they are only sent when set. With Ollama, `reasoning_effort = "none"` turns the reasoning off:
+
+```toml
+reasoning_effort = "none"
+max_tokens = 2048
+```
+
 With `api_tls = true`, the server certificate is checked against the system bundle of trusted CA certificates (on Windows, the Windows certificate store). Set `api_ca_file` to the path of another PEM bundle (not supported with the Windows store), or `api_insecure = true` to skip the check (e.g. for a server with a self-signed certificate).
 
 ## Usage
@@ -56,7 +63,8 @@ fn main() {
 		api_host:  'localhost'
 		api_port:  '11434'
 		api_model: 'qwen2.5-coder'
-		// optional: api_key, api_tls, api_ca_file, api_insecure, system_prompt, temperature
+		// optional: api_key, api_tls, api_ca_file, api_insecure, system_prompt,
+		// temperature, reasoning_effort, max_tokens
 	})!
 
 	// List the models available on the server, check one exists

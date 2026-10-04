@@ -1,5 +1,6 @@
 module api
 
+import json2
 import net
 import time
 
@@ -145,11 +146,31 @@ fn sse_response(body string) []string {
 	]
 }
 
+fn test_optional_request_fields_are_only_sent_when_set() {
+	plain := json2.encode(CompletionRequest{
+		model: 'm'
+	})
+	assert !plain.contains('reasoning_effort')
+	assert !plain.contains('max_tokens')
+	set := json2.encode(CompletionRequest{
+		model:            'm'
+		reasoning_effort: 'none'
+		max_tokens:       2048
+	})
+	assert set.contains('"reasoning_effort":"none"')
+	assert set.contains('"max_tokens":2048')
+}
+
 fn test_length_limit() {
 	reasoning := 'data: {"choices":[{"delta":{"content":"","reasoning":"hmm"}}]}\n\n'
 	stop := 'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n'
 	complete_from(sse_response(reasoning + stop)) or {
 		assert err.msg() == 'The model reached its length limit before answering (finish_reason: length)'
+		assert err is FinishError
+		if err is FinishError {
+			assert err.reason == 'length'
+			assert !err.received
+		}
 		return
 	}
 	assert false

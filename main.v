@@ -125,6 +125,10 @@ fn ask(client api.Client, prompt string) ! {
 		if !output.responded && needs_config_hint(err) {
 			return error('${err}. Check your configuration in ${config.file_path()}')
 		}
+		// A reasoning model may spend its whole budget on its reasoning
+		if err is api.FinishError && err.reason == 'length' && !err.received {
+			return error('${err.msg()}. With a reasoning model, set reasoning_effort = "none" in ${config.file_path()} to get an answer without reasoning')
+		}
 		return err
 	}
 	println('')
@@ -144,13 +148,15 @@ fn needs_config_hint(err IError) bool {
 
 fn config_to_api(cfg config.Settings) api.Config {
 	return api.Config{
-		api_host:     cfg.api_host
-		api_port:     cfg.api_port
-		api_key:      cfg.api_key
-		api_model:    cfg.api_model
-		api_tls:      cfg.api_tls
-		api_ca_file:  cfg.api_ca_file
-		api_insecure: cfg.api_insecure
+		api_host:         cfg.api_host
+		api_port:         cfg.api_port
+		api_key:          cfg.api_key
+		api_model:        cfg.api_model
+		api_tls:          cfg.api_tls
+		api_ca_file:      cfg.api_ca_file
+		api_insecure:     cfg.api_insecure
+		reasoning_effort: cfg.reasoning_effort
+		max_tokens:       cfg.max_tokens
 	}
 }
 

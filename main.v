@@ -210,6 +210,7 @@ fn main() {
 			cli.Command{
 				name:          'switch'
 				description:   'Switch to a different model'
+				usage:         '<model>'
 				required_args: 1
 				execute:       fn (cmd cli.Command) ! {
 					mut cfg, client := setup(cmd)!

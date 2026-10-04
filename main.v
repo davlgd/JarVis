@@ -165,6 +165,18 @@ fn main() {
 		description: 'CLI assistant using OpenAI compatible API'
 		version:     '0.2.0'
 		posix_mode:  true
+		// Help, version and manpage as flags only, not also as commands
+		defaults:    struct {
+			help:    cli.CommandFlag{
+				command: false
+			}
+			version: cli.CommandFlag{
+				command: false
+			}
+			man:     cli.CommandFlag{
+				command: false
+			}
+		}
 		flags:       [
 			cli.Flag{
 				name:        'verbose'

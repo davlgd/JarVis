@@ -159,6 +159,25 @@ fn setup(cmd cli.Command) !(config.Settings, api.Client) {
 	return cfg, client
 }
 
+// reject_flag_commands exits with guidance when the first argument is `help`,
+// `version` or `man`, which are flags only: as commands, they would be sent to the
+// model as a question, or let a later word run a command (vlib's cli looks for a
+// command in every argument, so `jarvis help switch <model>` would switch).
+fn reject_flag_commands(args []string) {
+	words := args.filter(!it.starts_with('-'))
+	if words.len == 0 {
+		return
+	}
+	flag := match words[0] {
+		'help' { '--help' }
+		'version' { '--version' }
+		'man' { '--man' }
+		else { return }
+	}
+	eprintln('`${words[0]}` is not a command: use `jarvis ${flag}`')
+	exit(1)
+}
+
 fn main() {
 	mut app := cli.Command{
 		name:        'jarvis'
@@ -230,6 +249,7 @@ fn main() {
 		]
 	}
 
+	reject_flag_commands(os.args[1..])
 	app.setup()
 	app.parse(os.args)
 }

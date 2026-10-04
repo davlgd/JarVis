@@ -166,8 +166,9 @@ fn setup(cmd cli.Command) !(config.Settings, api.Client) {
 fn reject_flag_commands(args []string) {
 	mut i := 0
 	for i < args.len && args[i].starts_with('-') {
-		// vlib's cli also accepts a boolean flag followed by its value: `-v true`
-		if args[i] in ['-v', '--verbose'] && i + 1 < args.len && args[i + 1] in ['true', 'false'] {
+		// All the flags are booleans, and vlib's cli also accepts a boolean flag
+		// followed by its value: `-v true`, `--help false`
+		if !args[i].contains('=') && i + 1 < args.len && args[i + 1] in ['true', 'false'] {
 			i++
 		}
 		i++

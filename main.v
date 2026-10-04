@@ -159,24 +159,27 @@ fn setup(cmd cli.Command) !(config.Settings, api.Client) {
 	return cfg, client
 }
 
-// reject_flag_commands exits with guidance when the first argument is `help`,
-// `version` or `man`, which are flags only: as commands, they would be sent to the
-// model as a question, or let a later word run a command (vlib's cli looks for a
-// command in every argument, so `jarvis help switch <model>` would switch).
-fn reject_flag_commands(args []string) {
+// first_word returns the first argument that is not a flag. All the flags are
+// booleans, and vlib's cli also accepts a boolean flag followed by its value
+// (`-v true`, `--help false`): that value is skipped too.
+fn first_word(args []string) ?string {
 	mut i := 0
 	for i < args.len && args[i].starts_with('-') {
-		// All the flags are booleans, and vlib's cli also accepts a boolean flag
-		// followed by its value: `-v true`, `--help false`
 		if !args[i].contains('=') && i + 1 < args.len && args[i + 1] in ['true', 'false'] {
 			i++
 		}
 		i++
 	}
 	if i >= args.len {
-		return
+		return none
 	}
-	word := args[i]
+	return args[i]
+}
+
+// reject_flag_commands exits with guidance when the first word is `help`,
+// `version` or `man`, which are flags only: as commands, they would be sent to the
+// model as a question.
+fn reject_flag_commands(word string) {
 	flag := match word {
 		'help' { '--help' }
 		'version' { '--version' }
@@ -258,7 +261,14 @@ fn main() {
 		]
 	}
 
-	reject_flag_commands(os.args[1..])
+	word := first_word(os.args[1..]) or { '' }
+	reject_flag_commands(word)
+	// Only the first word may select a command. vlib's cli looks for a command in
+	// every argument: without this, `jarvis tell me how to switch <model>` would
+	// switch the model instead of asking the question.
+	if word != '' && word !in app.commands.map(it.name) {
+		app.commands = []
+	}
 	app.setup()
 	app.parse(os.args)
 }
